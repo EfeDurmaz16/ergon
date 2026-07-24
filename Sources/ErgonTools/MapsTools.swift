@@ -9,14 +9,21 @@ import CoreLocation
 // returns a described string on failure instead of throwing, per ReadTool
 // contract (a throw aborts the whole generation).
 
-/// One-line "name - address" summary for a map item. iOS 26 deprecates
-/// CLGeocoder's synchronous placemark fields in favor of MKMapItem.address,
-/// but that API differs across MapKit versions, so this falls back to the
-/// always-available placemark.title when address is unavailable.
+/// One-line "name - address" summary for a map item.
+///
+/// Reads `address` and `location`, not the deprecated `placemark`. On iOS 26
+/// the placemark of an item returned by the modern search and geocoding APIs
+/// does not carry a usable coordinate, which is not a cosmetic problem: a
+/// drive to a hotel forty kilometres away was reported as 0.5 km because the
+/// destination coordinate read back as roughly the search region's centre.
 private func describe(_ item: MKMapItem) -> String {
     let name = item.name ?? "Unknown place"
-    let address = item.placemark.title ?? "no address"
+    let address = item.address?.fullAddress ?? item.address?.shortAddress ?? "no address"
     return "\(name) - \(address)"
+}
+
+private func coordinate(of item: MKMapItem) -> CLLocationCoordinate2D {
+    item.location.coordinate
 }
 
 private func transportType(for mode: String) -> MKDirectionsTransportType {
@@ -141,8 +148,7 @@ public struct SearchPlacesTool: ReadTool {
             let origin = center.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) }
             let lines = response.mapItems.prefix(5).map { item -> String in
                 guard let origin else { return describe(item) }
-                let there = CLLocation(latitude: item.placemark.coordinate.latitude,
-                                       longitude: item.placemark.coordinate.longitude)
+                let there = item.location
                 return describe(item) + String(format: " (%.1f km away)", origin.distance(from: there) / 1000)
             }
             return "Places matching '\(arguments.query)':\n" + lines.joined(separator: "\n")
@@ -173,7 +179,7 @@ public struct GeocodeAddressTool: ReadTool {
             guard let item = try await request.mapItems.first else {
                 return "No location found for '\(arguments.address)'."
             }
-            let coordinate = item.placemark.coordinate
+            let coordinate = coordinate(of: item)
             return "\(describe(item)) at \(coordinate.latitude), \(coordinate.longitude)"
         } catch {
             return "Could not geocode '\(arguments.address)': \(error.localizedDescription)"
@@ -241,10 +247,24 @@ public struct TravelETATool: ReadTool {
     /// invented. Guessed destination coordinates are not a small error: they
     /// silently turn a 40 km drive into a 330 km one, and the answer still
     /// looks authoritative.
-    private func resolve(place: String) async -> CLLocationCoordinate2D? {
-        guard let request = MKGeocodingRequest(addressString: place),
-              let item = try? await request.mapItems.first else { return nil }
-        return item.placemark.coordinate
+    ///
+    /// Biased to a region for the same reason nearby search is: an unbiased
+    /// lookup for "Bursa city center" matches the best "city center" anywhere
+    /// on earth. Falls back to plain geocoding for full addresses and for
+    /// destinations genuinely far from the bias point.
+    private func resolve(_ place: String, near center: CLLocationCoordinate2D?) async -> MKMapItem? {
+        let search = MKLocalSearch.Request()
+        search.naturalLanguageQuery = place
+        if let center {
+            search.region = MKCoordinateRegion(center: center,
+                                               latitudinalMeters: 200_000,
+                                               longitudinalMeters: 200_000)
+        }
+        if let item = try? await MKLocalSearch(request: search).start().mapItems.first {
+            return item
+        }
+        guard let geocode = MKGeocodingRequest(addressString: place) else { return nil }
+        return try? await geocode.mapItems.first
     }
 
     public func call(arguments: Arguments) async throws -> String {
@@ -252,10 +272,10 @@ public struct TravelETATool: ReadTool {
         if let lat = arguments.fromLatitude, let lon = arguments.fromLongitude {
             from = CLLocationCoordinate2D(latitude: lat, longitude: lon)
         } else if let place = arguments.fromPlace, !place.isEmpty {
-            guard let resolved = await resolve(place: place) else {
+            guard let resolved = await resolve(place, near: nil) else {
                 return "Could not find a place called '\(place)'."
             }
-            from = resolved
+            from = coordinate(of: resolved)
         } else {
             switch await CurrentLocation.fix() {
             case .unavailable(let message): return message
@@ -264,19 +284,25 @@ public struct TravelETATool: ReadTool {
         }
 
         let to: CLLocationCoordinate2D
+        // Named so the user can see where it decided to go. A silently wrong
+        // destination is the failure mode worth surfacing here.
+        var destinationName = ""
         if let place = arguments.toPlace, !place.isEmpty {
-            guard let resolved = await resolve(place: place) else {
+            guard let resolved = await resolve(place, near: from) else {
                 return "Could not find a place called '\(place)'."
             }
-            to = resolved
+            to = coordinate(of: resolved)
+            destinationName = " to \(describe(resolved))"
         } else if let lat = arguments.toLatitude, let lon = arguments.toLongitude {
             to = CLLocationCoordinate2D(latitude: lat, longitude: lon)
         } else {
             return "Name the destination to estimate travel time to it."
         }
 
-        let source = MKMapItem(placemark: MKPlacemark(coordinate: from))
-        let destination = MKMapItem(placemark: MKPlacemark(coordinate: to))
+        let source = MKMapItem(location: CLLocation(latitude: from.latitude, longitude: from.longitude),
+                               address: nil)
+        let destination = MKMapItem(location: CLLocation(latitude: to.latitude, longitude: to.longitude),
+                                    address: nil)
 
         let request = MKDirections.Request()
         request.source = source
@@ -293,7 +319,7 @@ public struct TravelETATool: ReadTool {
             let spelled = minutes >= 60
                 ? "\(minutes / 60) h \(minutes % 60) min (\(minutes) minutes)"
                 : "\(minutes) minutes"
-            return "About \(spelled), \(String(format: "%.1f", km)) km by \(arguments.mode)."
+            return "About \(spelled), \(String(format: "%.1f", km)) km by \(arguments.mode)\(destinationName)."
         } catch {
             return "Could not estimate travel time: \(error.localizedDescription)"
         }
