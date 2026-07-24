@@ -98,6 +98,12 @@ public final class Router {
         classifier.prewarm()
     }
 
+    /// The domain this intent would route to, without running it. Useful for
+    /// previews, tests, and showing the user where a request will go.
+    public func route(_ intent: String) async throws -> String {
+        try await classify(intent)
+    }
+
     // MARK: - Internal
 
     func classify(_ intent: String) async throws -> String {

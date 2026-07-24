@@ -64,6 +64,7 @@ struct AskView: View {
                         }
                         .padding(16)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityIdentifier("generativeScreen")
                     }
                 }
             }
@@ -75,7 +76,7 @@ struct AskView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Ask in plain language. Ergon checks your calendar, then stages any change for your approval.")
+            Text("Ask in plain language. Ergon routes to calendar, reminders, maps, weather, contacts, notes, alarms, or the device, and stages any real change for your approval.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 8) {
