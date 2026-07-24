@@ -42,19 +42,32 @@ private struct OpenMeteoResponse: Decodable {
 public struct WeatherTool: ReadTool {
     @Generable
     public struct Arguments {
-        @Guide(description: "Latitude of the location, e.g. 41.0082")
-        public var latitude: Double
-        @Guide(description: "Longitude of the location, e.g. 28.9784")
-        public var longitude: Double
+        @Guide(description: "Latitude of the location, e.g. 41.0082. Omit for the user's current location.")
+        public var latitude: Double?
+        @Guide(description: "Longitude of the location, e.g. 28.9784. Omit for the user's current location.")
+        public var longitude: Double?
     }
 
     public let name = "getWeather"
-    public let description = "Get current weather conditions and a 3-day forecast for a latitude/longitude."
+    public let description = "Get current weather conditions and a 3-day forecast. Omit the coordinates to use where the user is now."
 
     public init() {}
 
     public func call(arguments: Arguments) async throws -> String {
-        guard let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(arguments.latitude)&longitude=\(arguments.longitude)&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3") else {
+        let latitude: Double
+        let longitude: Double
+        if let lat = arguments.latitude, let lon = arguments.longitude {
+            (latitude, longitude) = (lat, lon)
+        } else {
+            // No coordinate means "here": ask the device rather than making
+            // the model invent one or the user paste one.
+            switch await CurrentLocation.fix() {
+            case .unavailable(let message): return message
+            case .at(let location):
+                (latitude, longitude) = (location.coordinate.latitude, location.coordinate.longitude)
+            }
+        }
+        guard let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3") else {
             return "Could not build weather request URL."
         }
         do {

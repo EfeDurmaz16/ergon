@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import FoundationModels
 @testable import Ergon
-import ErgonTools
+@testable import ErgonTools
 
 /// Regression tests from the adversarial review: same-key races, intent
 /// attribution, torn logs, double-open, both-conformance gating, and the
@@ -249,5 +249,21 @@ import ErgonTools
             """#))
         #expect(reminderSparse.dueISO8601 == nil)
         #expect(reminderSparse.notes == nil)
+
+        // "Weather here": the model omits both coordinates and the tool falls
+        // back to the device location, so this must decode rather than throw.
+        let here = try WeatherTool.Arguments(GeneratedContent(json: "{}"))
+        #expect(here.latitude == nil)
+        #expect(here.longitude == nil)
+    }
+
+    /// The location fallback races the fix against a deadline, because an
+    /// unanswered permission prompt keeps the update stream alive without ever
+    /// yielding a location. If that race regresses this test hangs, which is
+    /// the same signal a user would get.
+    @Test func locationFixHonorsItsDeadline() async {
+        let start = ContinuousClock.now
+        _ = await CurrentLocation.fix(timeout: .milliseconds(200))
+        #expect(start.duration(to: .now) < .seconds(5))
     }
 }

@@ -44,9 +44,14 @@ public enum ErgonToolkit {
     public static func maps() -> Toolset {
         Toolset(name: "maps",
                 description: "places and travel: find nearby spots, look up an address, or get travel time",
-                tools: [SearchPlacesTool(), GeocodeAddressTool(),
-                        ReverseGeocodeTool(), TravelETATool()],
-                instructions: "Reply in the language of the request. Use the tools to answer, keep replies short.")
+                tools: [CurrentLocationTool(), SearchPlacesTool(),
+                        GeocodeAddressTool(), ReverseGeocodeTool(), TravelETATool()],
+                instructions: """
+                Reply in the language of the request. Use the tools to answer, keep replies short.
+                For anything about here, nearby, or where the user is, call currentLocation first and answer with the city and street it returns, never with invented coordinates.
+                searchPlaces already searches near the user when you omit the coordinates, so do not guess a coordinate.
+                Report the place names and distances the tools return, unchanged.
+                """)
     }
 
     /// Weather domain (Open-Meteo, keyless). Read-only.
@@ -54,7 +59,7 @@ public enum ErgonToolkit {
         Toolset(name: "weather",
                 description: "weather: current conditions and forecast for a place",
                 tools: [WeatherTool()],
-                instructions: "Reply in the language of the request. If the user names a place but you lack coordinates, ask them to share a location or use a maps tool first. Keep replies short.")
+                instructions: "Reply in the language of the request. For the weather here or nearby, call getWeather with no coordinates: it uses the user's own location. Keep replies short.")
     }
 
     /// Contacts domain: find, create.
