@@ -36,9 +36,9 @@ struct ReadyView: View {
     @State private var model = AppModel()
 
     var body: some View {
-        if let engine = model.engine {
+        if let router = model.router {
             AskView(model: model)
-                .approvalSheet(engine)
+                .approvalSheet(router)
         } else {
             MessageScreen(title: "Ergon could not start",
                           message: model.initErrorMessage ?? "Unknown error.")

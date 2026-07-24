@@ -1,5 +1,6 @@
 import SwiftUI
 import Ergon
+import ErgonUI
 
 /// The single Ask screen: transcript above, one input field below. The primary
 /// action and the live streaming indicator are the only things that carry the
@@ -14,8 +15,10 @@ struct AskView: View {
     private let turkishSupported = Ergon.supports(Locale(identifier: "tr"))
 
     private let examples = [
-        "book a dentist appointment tomorrow at 9, warn me about conflicts",
         "yarın 9'a diş randevusu koy, çakışma varsa haber ver",
+        "set a timer for 10 minutes",
+        "find coffee shops near me",
+        "what is my battery level",
     ]
 
     var body: some View {
@@ -35,7 +38,7 @@ struct AskView: View {
                 ReceiptsView(model: model)
             }
             .task {
-                model.engine?.prewarm()
+                model.prewarm()
                 focused = true
             }
         }
@@ -54,6 +57,13 @@ struct AskView: View {
                 } else {
                     ForEach(model.transcript) { turn in
                         turnView(turn)
+                    }
+                    if let screen = model.presenter.screen {
+                        ErgonScreenView(screen) { suggestion in
+                            model.submit(suggestion)
+                        }
+                        .padding(16)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
                     }
                 }
             }
@@ -89,9 +99,19 @@ struct AskView: View {
 
     private func turnView(_ turn: AppModel.Turn) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(turn.role == .user ? "You" : "Ergon")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            HStack(spacing: 6) {
+                Text(turn.role == .user ? "You" : "Ergon")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                if let domain = turn.domain, turn.role == .assistant {
+                    Text(domain)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                }
+            }
             Text(turn.text)
                 .font(.body)
                 .foregroundStyle(turn.role == .user ? .primary : .secondary)

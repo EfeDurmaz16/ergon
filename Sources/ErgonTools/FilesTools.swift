@@ -1,0 +1,157 @@
+import Ergon
+import FoundationModels
+import Foundation
+
+/// Errors specific to the notes tools.
+enum NotesToolError: Error, LocalizedError {
+    case invalidName(String)
+    case notFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidName(let name):
+            return "'\(name)' is not a valid note name."
+        case .notFound(let name):
+            return "No note named '\(name)'."
+        }
+    }
+}
+
+enum NotesStore {
+    /// Sandbox notes directory, created on first access.
+    static func directory() throws -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let dir = docs.appendingPathComponent("ErgonNotes", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    /// Keeps only alphanumerics, space, dash, underscore; replaces everything
+    /// else (including "/" and ".") with "_" so the result can never escape
+    /// the notes directory.
+    static func sanitize(_ name: String) throws -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " -_"))
+        let cleaned = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
+        let trimmed = cleaned.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { throw NotesToolError.invalidName(name) }
+        return trimmed
+    }
+
+    static func fileURL(for name: String) throws -> URL {
+        let safe = try sanitize(name)
+        return try directory().appendingPathComponent(safe + ".txt")
+    }
+}
+
+/// Lists the user's saved notes. Read-only: runs during generation.
+public struct ListNotesTool: ReadTool {
+    @Generable
+    public struct Arguments {}
+
+    public let name = "listNotes"
+    public let description = "List the names of all saved notes."
+
+    public init() {}
+
+    public func call(arguments: Arguments) async throws -> String {
+        do {
+            let dir = try NotesStore.directory()
+            let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            let names = files.filter { $0.hasSuffix(".txt") }.map { String($0.dropLast(4)) }
+            guard !names.isEmpty else { return "No notes saved yet." }
+            return "Notes: " + names.joined(separator: ", ")
+        } catch {
+            return "Could not list notes: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Reads one saved note by name. Read-only: runs during generation.
+public struct ReadNoteTool: ReadTool {
+    @Generable
+    public struct Arguments {
+        @Guide(description: "Name of the note to read, without the .txt extension")
+        var name: String
+    }
+
+    public let name = "readNote"
+    public let description = "Read the contents of a saved note by name."
+
+    public init() {}
+
+    public func call(arguments: Arguments) async throws -> String {
+        do {
+            let url = try NotesStore.fileURL(for: arguments.name)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return "Note '\(arguments.name)' not found."
+            }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            return text
+        } catch {
+            return "Could not read note '\(arguments.name)': \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Creates or overwrites a saved note. Consequential: never runs without
+/// approval; overwriting an existing note is reversible only in the sense
+/// that the user can write it back, so it is still marked reversible since
+/// no data outside the sandbox is touched and the old text was disposable.
+public struct WriteNoteTool: ConsequentialTool {
+    @Generable
+    public struct Arguments {
+        @Guide(description: "Name for the note, without the .txt extension")
+        var name: String
+        @Guide(description: "Full text content to save in the note")
+        var text: String
+    }
+
+    public let name = "writeNote"
+    public let description = "Create or overwrite a saved note with the given text."
+    public let isReversible = true
+
+    public init() {}
+
+    public func preview(_ arguments: Arguments) -> ActionPreview {
+        ActionPreview(title: "Write note", detail: arguments.name)
+    }
+
+    // Contract: throwing means no file was written or changed.
+    public func call(arguments: Arguments) async throws -> String {
+        let url = try NotesStore.fileURL(for: arguments.name)
+        try arguments.text.write(to: url, atomically: true, encoding: .utf8)
+        return "Saved note '\(arguments.name)'."
+    }
+}
+
+/// Deletes a saved note. Consequential and NOT reversible.
+public struct DeleteNoteTool: ConsequentialTool {
+    @Generable
+    public struct Arguments {
+        @Guide(description: "Name of the note to delete, without the .txt extension")
+        var name: String
+    }
+
+    public let name = "deleteNote"
+    public let description = "Permanently delete a saved note by name."
+    public let isReversible = false
+
+    public init() {}
+
+    public func preview(_ arguments: Arguments) -> ActionPreview {
+        ActionPreview(title: "Delete note", detail: arguments.name)
+    }
+
+    // Contract: throwing means no file was deleted. Throws if the note is
+    // missing so a deletion is never falsely reported as having happened.
+    public func call(arguments: Arguments) async throws -> String {
+        let url = try NotesStore.fileURL(for: arguments.name)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw NotesToolError.notFound(arguments.name)
+        }
+        try FileManager.default.removeItem(at: url)
+        return "Deleted note '\(arguments.name)'."
+    }
+}

@@ -2,7 +2,7 @@ name: ErgonDemo
 options:
   bundleIdPrefix: dev.efedurmaz
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "26.1"
   createIntermediateGroups: true
 packages:
   Ergon:
@@ -31,6 +31,8 @@ targets:
         product: Ergon
       - package: Ergon
         product: ErgonTools
+      - package: Ergon
+        product: ErgonUI
     info:
       path: ErgonDemo/Info.plist
       properties:
@@ -38,6 +40,9 @@ targets:
         UILaunchScreen: {}
         NSCalendarsFullAccessUsageDescription: "Ergon creates the calendar events you approve."
         NSRemindersFullAccessUsageDescription: "Ergon creates the reminders you approve."
+        NSContactsUsageDescription: "Ergon looks up and adds contacts you ask for."
+        NSLocationWhenInUseUsageDescription: "Ergon uses your location to find nearby places and travel times."
+        NSAlarmKitUsageDescription: "Ergon schedules the alarms and timers you approve."
     settings:
       base:
         SWIFT_VERSION: "6.0"

@@ -39,7 +39,7 @@ struct ReceiptsView: View {
                 }
             }
             .task {
-                let all = await model.engine?.receipts() ?? []
+                let all = await model.receipts()
                 receipts = Array(all.reversed())
             }
         }
