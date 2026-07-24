@@ -15,7 +15,7 @@ struct AskView: View {
 
     private let examples = [
         "book a dentist appointment tomorrow at 9, warn me about conflicts",
-        "yarin 9'a dis randevusu koy, cakisma varsa haber ver",
+        "yarın 9'a diş randevusu koy, çakışma varsa haber ver",
     ]
 
     var body: some View {

@@ -197,7 +197,7 @@ public final class Ergon {
                                                   idempotencyKey: approval.idempotencyKey)
         } catch let error as ErgonError {
             // The refusal itself is part of the audit trail.
-            try? await store.append(intent: approval.intent, toolName: approval.toolName,
+            _ = try? await store.append(intent: approval.intent, toolName: approval.toolName,
                                     argumentsJSON: approval.argumentsJSON,
                                     idempotencyKey: nil, decision: .refused,
                                     outcome: .failure(error.errorDescription ?? "refused"),

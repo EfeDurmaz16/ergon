@@ -8,6 +8,19 @@ packages:
   Ergon:
     path: ../..
 targets:
+  ErgonDemoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ErgonDemoUITests
+    dependencies:
+      - target: ErgonDemo
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        TEST_TARGET_NAME: ErgonDemo
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "Verifies the created event."
   ErgonDemo:
     type: application
     platform: iOS
