@@ -42,7 +42,10 @@ public final class Ergon {
     private let store: ReceiptStore
     private var staged: [UUID: StagedAction] = [:]
     private var continuation: AsyncThrowingStream<Event, Error>.Continuation?
-    private var currentIntent = ""
+    var currentIntent = ""
+    /// The wrapped tools actually handed to the model session. Internal so
+    /// tests can drive a gate exactly the way the model would.
+    private(set) var gatedTools: [any FoundationModels.Tool] = []
 
     /// Whether the on-device model can run here at all.
     public nonisolated static var availability: Availability {
@@ -92,6 +95,7 @@ public final class Ergon {
                 gated.append(tool.fallbackGate(stage: stage))
             }
         }
+        self.gatedTools = gated
         // ponytail: instructions capture the date at init; a session that
         // straddles midnight resolves "tomorrow" against the old day. Create
         // a new Ergon per conversation if that matters.

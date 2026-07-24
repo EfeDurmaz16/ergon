@@ -6,6 +6,11 @@ import FoundationModels
 /// unclassified effect is treated as a real effect (deny by default).
 public protocol Tool: FoundationModels.Tool where Arguments: Generable {}
 
+/// Disambiguation alias for code that imports both Ergon and
+/// FoundationModels, where the bare name `Tool` is ambiguous and
+/// `Ergon.Tool` is shadowed by the engine class.
+public typealias ErgonTool = Tool
+
 /// A tool with no side effects. Executes freely during generation and leaves
 /// an `autoRead` receipt.
 public protocol ReadTool: Tool {}
