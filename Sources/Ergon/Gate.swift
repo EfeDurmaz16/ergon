@@ -53,8 +53,13 @@ final class ConsequentialGate<T: Tool>: FoundationModels.Tool {
                 let arguments = try T.Arguments(content)
                 return summarize(try await tool.call(arguments: arguments))
             })
-        let id = await stage(action)
-        return "Staged for user approval (id \(id.uuidString)). It will execute only if the user approves. Tell the user the action awaits their confirmation; do not claim it was performed."
+        _ = await stage(action)
+        // Deliberately short, blunt, and free of identifiers. A small model
+        // parrots whatever this returns straight into its reply: the earlier
+        // version carried the approval UUID, which surfaced verbatim to the
+        // user, and its softer wording still let the model open with "your
+        // note has been added".
+        return "NOT DONE. Nothing happened yet. This only asked the user to approve. Reply with one short sentence saying it is waiting for their approval."
     }
 }
 

@@ -51,7 +51,7 @@ public struct ListNotesTool: ReadTool {
     public struct Arguments {}
 
     public let name = "listNotes"
-    public let description = "List the names of all saved notes."
+    public let description = "List the names of the notes saved inside Ergon. These are Ergon's own notes, not the Apple Notes app."
 
     public init() {}
 
@@ -77,7 +77,7 @@ public struct ReadNoteTool: ReadTool {
     }
 
     public let name = "readNote"
-    public let description = "Read the contents of a saved note by name."
+    public let description = "Read one of Ergon's own saved notes by name. Cannot read the Apple Notes app."
 
     public init() {}
 
@@ -109,13 +109,13 @@ public struct WriteNoteTool: ConsequentialTool {
     }
 
     public let name = "writeNote"
-    public let description = "Create or overwrite a saved note with the given text."
+    public let description = "Create or overwrite a note inside Ergon with the given text. This does not write to the Apple Notes app."
     public let isReversible = true
 
     public init() {}
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
-        ActionPreview(title: "Write note", detail: arguments.name)
+        ActionPreview(title: "Write note in Ergon", detail: arguments.name)
     }
 
     // Contract: throwing means no file was written or changed.
@@ -135,13 +135,13 @@ public struct DeleteNoteTool: ConsequentialTool {
     }
 
     public let name = "deleteNote"
-    public let description = "Permanently delete a saved note by name."
+    public let description = "Permanently delete one of Ergon's own saved notes by name."
     public let isReversible = false
 
     public init() {}
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
-        ActionPreview(title: "Delete note", detail: arguments.name)
+        ActionPreview(title: "Delete note in Ergon", detail: arguments.name)
     }
 
     // Contract: throwing means no file was deleted. Throws if the note is

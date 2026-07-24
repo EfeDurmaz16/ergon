@@ -70,12 +70,18 @@ public enum ErgonToolkit {
                 instructions: stagingRule)
     }
 
-    /// Notes/files domain: list, read, write, delete.
+    /// Notes domain: list, read, write, delete. These notes live in Ergon's
+    /// own sandbox. iOS exposes no public API for the Apple Notes app, so a
+    /// note written here will never appear there, and both the model and the
+    /// user have to be told that plainly.
     public static func notes() -> Toolset {
         Toolset(name: "notes",
-                description: "notes: list, read, write, or delete short text notes",
+                description: "Ergon's own notes: list, read, write, or delete short text notes kept inside Ergon",
                 tools: [ListNotesTool(), ReadNoteTool(), WriteNoteTool(), DeleteNoteTool()],
-                instructions: stagingRule)
+                instructions: stagingRule + """
+
+                These notes are stored inside Ergon only. You cannot read from or write to the Apple Notes app. If the user expects a note to show up in Apple Notes, tell them it stays in Ergon.
+                """)
     }
 
     /// Every toolset available on this platform, ready for a `Router`.
@@ -107,7 +113,10 @@ public enum ErgonToolkit {
         Toolset(name: "device",
                 description: "device: battery status, low power mode, and the clipboard",
                 tools: [BatteryStatusTool(), ReadClipboardTool(), CopyToClipboardTool()],
-                instructions: stagingRule)
+                instructions: stagingRule + """
+
+                You can only report the battery percentage, charging state, and Low Power Mode. iOS exposes no battery health, cycle count, or temperature to apps: if the user asks for those, say you cannot read them. Never report a percentage as if it were battery health.
+                """)
     }
     #endif
 }
