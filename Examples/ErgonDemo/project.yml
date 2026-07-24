@@ -43,6 +43,12 @@ targets:
         NSContactsUsageDescription: "Ergon looks up and adds contacts you ask for."
         NSLocationWhenInUseUsageDescription: "Ergon uses your location to find nearby places and travel times."
         NSAlarmKitUsageDescription: "Ergon schedules the alarms and timers you approve."
+        # iOS has no public API for the Apple Notes app, so Ergon's notes are
+        # plain text files in its Documents folder. These two keys surface that
+        # folder in the Files app under On My iPhone, which is as close to an
+        # OS-level home as notes can get.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         SWIFT_VERSION: "6.0"
