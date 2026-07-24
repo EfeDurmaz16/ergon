@@ -5,6 +5,9 @@ import Foundation
 /// unless `Ergon.approve(_:)` is called with its id.
 public struct Approval: Identifiable, Sendable, Equatable {
     public let id: UUID
+    /// The natural-language intent this call was resolved from, frozen at
+    /// staging time. Receipts use this, not whatever the user typed later.
+    public let intent: String
     public let toolName: String
     public let preview: ActionPreview
     public let isReversible: Bool

@@ -38,14 +38,20 @@ public final class Ergon {
     /// Where the JSONL receipt log lives.
     public let receiptsURL: URL
 
-    private var session: LanguageModelSession
+    private struct StagedEntry {
+        let runGeneration: Int
+        let action: StagedAction
+    }
+
+    @ObservationIgnored private var session: LanguageModelSession
     private let store: ReceiptStore
-    private var staged: [UUID: StagedAction] = [:]
-    private var continuation: AsyncThrowingStream<Event, Error>.Continuation?
-    var currentIntent = ""
+    @ObservationIgnored private var staged: [UUID: StagedEntry] = [:]
+    @ObservationIgnored private var continuation: AsyncThrowingStream<Event, Error>.Continuation?
+    @ObservationIgnored var currentIntent = ""
+    @ObservationIgnored private var runGeneration = 0
     /// The wrapped tools actually handed to the model session. Internal so
     /// tests can drive a gate exactly the way the model would.
-    private(set) var gatedTools: [any FoundationModels.Tool] = []
+    @ObservationIgnored private(set) var gatedTools: [any FoundationModels.Tool] = []
 
     /// Whether the on-device model can run here at all.
     public nonisolated static var availability: Availability {
@@ -111,6 +117,9 @@ public final class Ergon {
     /// Resolve one natural-language intent. Read tools may execute during the
     /// stream; consequential calls surface as `.needsApproval` and execute
     /// only via `approve(_:)`, which you can call during or after the stream.
+    /// `.executed` events reach the stream only while the run that staged
+    /// the call is still streaming; for approvals decided later (the common
+    /// case) take the receipt from `approve`'s return value or `receipts()`.
     public func run(_ intent: String) -> AsyncThrowingStream<Event, Error> {
         AsyncThrowingStream { continuation in
             if case .unavailable(let reason) = Self.availability {
@@ -123,6 +132,8 @@ public final class Ergon {
             }
             isRunning = true
             currentIntent = intent
+            runGeneration += 1
+            let thisRun = runGeneration
             self.continuation = continuation
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -141,10 +152,14 @@ public final class Ergon {
                 } catch {
                     continuation.finish(throwing: ErgonError.generation(String(describing: error)))
                 }
-                self.isRunning = false
-                self.continuation = nil
+                self.endRun(thisRun)
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { [weak self] _ in
+                task.cancel()
+                // A consumer that stops iterating early must not leave
+                // isRunning latched while the generation winds down.
+                Task { @MainActor [weak self] in self?.endRun(thisRun) }
+            }
         }
     }
 
@@ -156,7 +171,7 @@ public final class Ergon {
     @discardableResult
     public func approve(_ id: UUID) async throws -> Receipt {
         guard let index = pendingApprovals.firstIndex(where: { $0.id == id }),
-              let action = staged[id] else {
+              let entry = staged[id] else {
             throw ErgonError.unknownApproval
         }
         let approval = pendingApprovals[index]
@@ -166,50 +181,61 @@ public final class Ergon {
         pendingApprovals.remove(at: index)
         staged[id] = nil
 
-        if let prior = await store.successReceipt(for: approval.idempotencyKey) {
+        // Atomic check-and-reserve inside the store actor. Two approvals
+        // sharing one idempotency key (the model staged the same call twice)
+        // cannot both pass this line: it writes the pending marker in the
+        // same actor call, so the loser fails closed. The marker also means
+        // dying mid-execution refuses re-execution on the next attempt.
+        let reservation: ReceiptStore.Reservation
+        do {
+            reservation = try await store.reserve(intent: approval.intent,
+                                                  toolName: approval.toolName,
+                                                  argumentsJSON: approval.argumentsJSON,
+                                                  idempotencyKey: approval.idempotencyKey)
+        } catch let error as ErgonError {
+            // The refusal itself is part of the audit trail.
+            try? await store.append(intent: approval.intent, toolName: approval.toolName,
+                                    argumentsJSON: approval.argumentsJSON,
+                                    idempotencyKey: nil, decision: .refused,
+                                    outcome: .failure(error.errorDescription ?? "refused"),
+                                    latencyMS: 0)
+            throw error
+        }
+        if case .alreadySucceeded(let prior) = reservation {
             return prior
         }
-        if await store.hasUnresolvedPending(for: approval.idempotencyKey) {
-            throw ErgonError.unresolvedExecution(idempotencyKey: approval.idempotencyKey)
-        }
-
-        // Marker first: if we die mid-execution, the next attempt fails
-        // closed instead of double-executing.
-        try await store.append(intent: currentIntent, toolName: approval.toolName,
-                               argumentsJSON: approval.argumentsJSON,
-                               idempotencyKey: approval.idempotencyKey,
-                               decision: .approved, outcome: .pending, latencyMS: 0)
 
         let start = ContinuousClock.now
         let outcome: Receipt.Outcome
         do {
-            outcome = .success(try await action.execute())
+            outcome = .success(try await entry.action.execute())
         } catch {
             outcome = .failure(String(describing: error))
         }
-        let receipt = try await store.append(intent: currentIntent, toolName: approval.toolName,
+        let receipt = try await store.append(intent: approval.intent, toolName: approval.toolName,
                                              argumentsJSON: approval.argumentsJSON,
                                              idempotencyKey: approval.idempotencyKey,
                                              decision: .approved, outcome: outcome,
                                              latencyMS: latencyMS(since: start))
-        continuation?.yield(.executed(receipt))
+        yieldIntoOriginatingRun(entry.runGeneration, .executed(receipt))
         return receipt
     }
 
     /// Reject a staged call. Nothing executes; the denial itself is receipted.
     @discardableResult
     public func deny(_ id: UUID) async throws -> Receipt {
-        guard let index = pendingApprovals.firstIndex(where: { $0.id == id }) else {
+        guard let index = pendingApprovals.firstIndex(where: { $0.id == id }),
+              let entry = staged[id] else {
             throw ErgonError.unknownApproval
         }
         let approval = pendingApprovals[index]
         pendingApprovals.remove(at: index)
         staged[id] = nil
-        let receipt = try await store.append(intent: currentIntent, toolName: approval.toolName,
+        let receipt = try await store.append(intent: approval.intent, toolName: approval.toolName,
                                              argumentsJSON: approval.argumentsJSON,
                                              idempotencyKey: approval.idempotencyKey,
                                              decision: .denied, outcome: .denied, latencyMS: 0)
-        continuation?.yield(.executed(receipt))
+        yieldIntoOriginatingRun(entry.runGeneration, .executed(receipt))
         return receipt
     }
 
@@ -219,9 +245,26 @@ public final class Ergon {
     }
 
     /// Re-verifies a receipt log's hash chain from disk. Tamper evidence is
-    /// only a claim if anyone can check it.
+    /// only a claim if anyone can check it. A missing or empty log verifies
+    /// as true: there is nothing to have tampered with. Detecting deletion
+    /// of the whole log needs an anchor outside the file and is out of
+    /// scope here.
     public nonisolated static func verifyReceipts(at url: URL) -> Bool {
-        ReceiptStore.verifyChain(at: url)
+        guard FileManager.default.fileExists(atPath: url.path) else { return true }
+        return ReceiptStore.verifyChain(at: url)
+    }
+
+    /// Recovery for a log that fails verification: moves it aside to
+    /// `<name>.corrupt-<timestamp>` so the evidence is preserved and a
+    /// fresh chain can start, and returns the quarantine location.
+    /// The next `Ergon.init` on the same URL will then succeed.
+    public nonisolated static func quarantineReceipts(at url: URL) throws -> URL {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let destination = url.deletingLastPathComponent()
+            .appending(path: url.lastPathComponent + ".corrupt-" + stamp)
+        try FileManager.default.moveItem(at: url, to: destination)
+        return destination
     }
 
     // MARK: - Internal
@@ -229,6 +272,7 @@ public final class Ergon {
     func stage(_ action: StagedAction) -> UUID {
         let approval = Approval(
             id: UUID(),
+            intent: currentIntent,
             toolName: action.toolName,
             preview: action.preview,
             isReversible: action.isReversible,
@@ -236,10 +280,25 @@ public final class Ergon {
             idempotencyKey: Self.idempotencyKey(intent: currentIntent,
                                                 toolName: action.toolName,
                                                 argumentsJSON: action.argumentsJSON))
-        staged[approval.id] = action
+        staged[approval.id] = StagedEntry(runGeneration: runGeneration, action: action)
         pendingApprovals.append(approval)
         continuation?.yield(.needsApproval(approval))
         return approval.id
+    }
+
+    private func endRun(_ generation: Int) {
+        guard generation == runGeneration else { return }
+        isRunning = false
+        continuation = nil
+    }
+
+    /// Receipts stream only into the run that staged the call. Approvals
+    /// decided after their run finished (the common case) are delivered by
+    /// approve's return value and `receipts()`, never into a later run's
+    /// stream.
+    private func yieldIntoOriginatingRun(_ generation: Int, _ event: Event) {
+        guard generation == runGeneration else { return }
+        continuation?.yield(event)
     }
 
     private func recordRead(toolName: String, argumentsJSON: String,

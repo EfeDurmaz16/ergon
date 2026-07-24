@@ -10,6 +10,9 @@ public struct Receipt: Codable, Sendable, Equatable, Identifiable {
         case approved
         case denied
         case autoRead
+        /// The user approved, but the runtime refused to execute: a prior
+        /// execution of the same idempotency key is unresolved or in flight.
+        case refused
     }
 
     public enum Outcome: Codable, Sendable, Equatable {

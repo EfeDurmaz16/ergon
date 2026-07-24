@@ -16,6 +16,7 @@ struct ApprovalSheetModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.sheet(item: current) { approval in
             ApprovalSheetView(approval: approval, engine: engine)
+                .id(approval.id)  // fresh working/error state per approval
                 .presentationDetents([.medium])
         }
     }

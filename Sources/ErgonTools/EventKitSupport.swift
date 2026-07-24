@@ -13,6 +13,12 @@ nonisolated(unsafe) private let offsetISO: ISO8601DateFormatter = {
     return formatter
 }()
 
+nonisolated(unsafe) private let fractionalISO: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
 nonisolated(unsafe) private let localISO: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withFullDate, .withDashSeparatorInDate,
@@ -87,7 +93,7 @@ enum Access {
 /// because the model sometimes omits the offset, plain local wall time
 /// ("2026-07-25T09:00:00") interpreted in the user's time zone.
 func parseISO(_ raw: String) throws -> Date {
-    if let date = offsetISO.date(from: raw) ?? localISO.date(from: raw) {
+    if let date = offsetISO.date(from: raw) ?? fractionalISO.date(from: raw) ?? localISO.date(from: raw) {
         return date
     }
     throw ToolError.unparseableDate(raw)

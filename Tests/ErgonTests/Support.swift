@@ -37,6 +37,7 @@ final class SpyConsequentialTool: ConsequentialTool {
     let description = "Test tool that records the fact it ran."
     let isReversible = false
     let executions = Mutex(0)
+    let attempts = Mutex(0)
     let shouldThrow: Bool
 
     init(shouldThrow: Bool = false) {
@@ -48,6 +49,7 @@ final class SpyConsequentialTool: ConsequentialTool {
     }
 
     func call(arguments: SpyArguments) async throws -> String {
+        attempts.withLock { $0 += 1 }
         if shouldThrow {
             throw TestError.boom
         }
@@ -57,6 +59,26 @@ final class SpyConsequentialTool: ConsequentialTool {
 
     var executionCount: Int {
         executions.withLock { $0 }
+    }
+}
+
+/// A tool claiming BOTH classifications. Deny by default: the consequential
+/// gate must win, or a "both" tool would run freely during generation.
+final class SpyBothTool: ReadTool, ConsequentialTool {
+    typealias Arguments = SpyArguments
+
+    let name = "spyBoth"
+    let description = "Test tool conforming to both classifications."
+    let isReversible = true
+    let executions = Mutex(0)
+
+    func preview(_ arguments: SpyArguments) -> ActionPreview {
+        ActionPreview(title: "Both action", detail: arguments.value)
+    }
+
+    func call(arguments: SpyArguments) async throws -> String {
+        executions.withLock { $0 += 1 }
+        return "ran"
     }
 }
 

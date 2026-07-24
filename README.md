@@ -67,9 +67,9 @@ struct SendInvoice: ConsequentialTool {
 
 ## Three nouns
 
-- **Tool**: what your app can do. `ReadTool` runs freely during generation. `ConsequentialTool` can never execute without an approval; a tool that declares neither is gated anyway. Both refine the native `FoundationModels.Tool`, so your tools also work in a bare `LanguageModelSession`.
+- **Tool**: what your app can do. `ReadTool` runs freely during generation. `ConsequentialTool` can never execute without an approval; a tool that declares neither is gated anyway. Both refine the native `FoundationModels.Tool`, so your tools also work in a bare `LanguageModelSession`. Note the flip side: a bare session has no gates, so only hand it tools you would run unsupervised.
 - **Approval**: a staged consequential call. The sheet (or your own UI over `engine.pendingApprovals`) shows what will happen, to what, and whether it is reversible. `approve(_:)` executes exactly once; `deny(_:)` and swiping the sheet away execute nothing.
-- **Receipt**: one line per execution, denial, or read, in an append-only JSONL log with a SHA-256 hash chain. `Ergon.verifyReceipts(at:)` re-checks the chain. Confirmed intents carry idempotency keys: re-running one never double-executes, and an execution interrupted mid-flight fails closed instead of running again.
+- **Receipt**: every execution, denial, refusal, and read lands in an append-only JSONL log with a SHA-256 hash chain; approved executions write a pending marker line first, then the outcome line. `Ergon.verifyReceipts(at:)` re-checks the chain. Confirmed intents carry idempotency keys: re-running one never double-executes, and an execution interrupted mid-flight fails closed instead of running again.
 
 That is the whole API surface. No orchestration DSL, no configuration object.
 

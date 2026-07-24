@@ -139,6 +139,7 @@ import FoundationModels
 
         let receipt = try await engine.approve(approval.id)
 
+        #expect(spy.attempts.withLock { $0 } == 1)
         #expect(spy.executionCount == 0)
         #expect(receipt.decision == .approved)
         if case .failure = receipt.outcome {} else {

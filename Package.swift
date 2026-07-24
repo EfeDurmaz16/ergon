@@ -11,6 +11,6 @@ let package = Package(
     targets: [
         .target(name: "Ergon"),
         .target(name: "ErgonTools", dependencies: ["Ergon"]),
-        .testTarget(name: "ErgonTests", dependencies: ["Ergon"]),
+        .testTarget(name: "ErgonTests", dependencies: ["Ergon", "ErgonTools"]),
     ]
 )

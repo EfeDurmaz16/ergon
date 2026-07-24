@@ -16,10 +16,14 @@ public enum ErgonError: Error, LocalizedError, Equatable, Sendable {
     case guardrailRefusal
     /// approve/deny was called with an id that is not pending.
     case unknownApproval
-    /// A previous execution with the same idempotency key was interrupted
-    /// before recording an outcome. Ergon fails closed instead of risking a
-    /// double execution; the user should check the target app.
+    /// An execution with the same idempotency key was interrupted before
+    /// recording an outcome, or is in flight right now. Ergon fails closed
+    /// instead of risking a double execution; the user should check the
+    /// target app.
     case unresolvedExecution(idempotencyKey: String)
+    /// Another Ergon instance in this process already writes this receipt
+    /// log. Two writers would fork the hash chain.
+    case receiptLogInUse(String)
     /// The receipt log failed hash-chain verification or does not decode.
     case corruptReceiptLog(String)
     /// Any other generation failure, with a debug description.
@@ -44,7 +48,9 @@ public enum ErgonError: Error, LocalizedError, Equatable, Sendable {
         case .unknownApproval:
             "No pending approval matches this id."
         case .unresolvedExecution(let key):
-            "A previous run of this action (key \(key.prefix(8))) was interrupted before its outcome was recorded. Refusing to run it again automatically; please verify in the target app."
+            "A run of this action (key \(key.prefix(8))) is unresolved: interrupted before its outcome was recorded, or still in flight. Refusing to run it again automatically; please verify in the target app."
+        case .receiptLogInUse(let path):
+            "The receipt log at \(path) is already open in this process. Use one Ergon instance per log."
         case .corruptReceiptLog(let detail):
             "Receipt log failed verification: \(detail)"
         case .generation(let detail):
