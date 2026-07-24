@@ -23,8 +23,41 @@ actor ReceiptStore {
     private var successByKey: [String: Receipt] = [:]
     private var unresolvedPendingKeys: Set<String> = []
 
+    struct Head: Codable, Equatable {
+        let count: Int
+        let lastHash: String
+    }
+
+    static func headURL(for url: URL) -> URL {
+        url.appendingPathExtension("head")
+    }
+
+    private static func readHead(for url: URL) -> Head? {
+        guard let data = try? Data(contentsOf: headURL(for: url)) else { return nil }
+        return try? JSONDecoder().decode(Head.self, from: data)
+    }
+
+    private static func writeHead(_ head: Head, for url: URL) {
+        guard let data = try? JSONEncoder().encode(head) else { return }
+        try? data.write(to: headURL(for: url), options: .atomic)
+    }
+
+    /// The sidecar head anchors the chain's tail: deleting trailing COMPLETE
+    /// lines leaves a valid-looking prefix that only the anchor can expose.
+    /// A stale head (behind the log) is normal: the head is written after
+    /// the append it describes. A head ahead of the log means truncation.
+    /// ponytail: the anchor lives next to the log, so a writer who rewrites
+    /// both still forges; move the head into the Keychain (or HMAC the
+    /// chain) when this must resist a deliberate local attacker.
+    private static func headConsistent(_ receipts: [Receipt], url: URL) -> Bool {
+        guard let head = readHead(for: url) else { return true }
+        guard receipts.count >= head.count else { return false }
+        guard head.count > 0 else { return true }
+        return receipts[head.count - 1].hash == head.lastHash
+    }
+
     init(url: URL) throws {
-        let path = url.standardizedFileURL.path
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         let claimed = Self.openPaths.withLock { $0.insert(path).inserted }
         guard claimed else {
             throw ErgonError.receiptLogInUse(path)
@@ -33,9 +66,17 @@ actor ReceiptStore {
             let fm = FileManager.default
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if !fm.fileExists(atPath: url.path) {
+                #if canImport(UIKit)
+                fm.createFile(atPath: url.path, contents: nil,
+                              attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+                #else
                 fm.createFile(atPath: url.path, contents: nil)
+                #endif
             }
             let (loaded, validLength) = try Self.loadAndVerify(url: url)
+            guard Self.headConsistent(loaded, url: url) else {
+                throw ErgonError.corruptReceiptLog("log disagrees with its anchored head: trailing receipts were deleted or rewritten")
+            }
             var success: [String: Receipt] = [:]
             var pending: Set<String> = []
             for receipt in loaded {
@@ -52,6 +93,8 @@ actor ReceiptStore {
             self.successByKey = success
             self.unresolvedPendingKeys = pending
             self.handle = handle
+            Self.writeHead(Head(count: loaded.count,
+                                lastHash: loaded.last?.hash ?? Self.genesisHash), for: url)
         } catch {
             Self.openPaths.withLock { _ = $0.remove(path) }
             throw error
@@ -68,14 +111,20 @@ actor ReceiptStore {
                                    success: inout [String: Receipt],
                                    pending: inout Set<String>) {
         guard let key = receipt.idempotencyKey else { return }
-        switch receipt.outcome {
-        case .pending:
+        // Only the approve path's own terminal receipts resolve a pending
+        // marker. A denial never follows a reservation, so letting .denied
+        // clear a pending would let deny-then-approve resurrect a key whose
+        // interrupted execution we are refusing to repeat.
+        switch (receipt.decision, receipt.outcome) {
+        case (.approved, .pending):
             pending.insert(key)
-        case .success:
+        case (.approved, .success):
             success[key] = receipt
             pending.remove(key)
-        case .failure, .denied:
+        case (.approved, .failure):
             pending.remove(key)
+        default:
+            break
         }
     }
 
@@ -99,6 +148,9 @@ actor ReceiptStore {
         lastHash = receipt.hash
         receipts.append(receipt)
         index(receipt)
+        // Best effort: a head left behind the log is safe (the log is a
+        // superset); a head that cannot be read is skipped at open.
+        Self.writeHead(Head(count: receipts.count, lastHash: lastHash), for: url)
         return receipt
     }
 
@@ -172,6 +224,7 @@ actor ReceiptStore {
     }
 
     static func verifyChain(at url: URL) -> Bool {
-        (try? loadAndVerify(url: url)) != nil
+        guard let (receipts, _) = try? loadAndVerify(url: url) else { return false }
+        return headConsistent(receipts, url: url)
     }
 }

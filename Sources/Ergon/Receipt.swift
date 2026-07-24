@@ -2,9 +2,12 @@ import Foundation
 import CryptoKit
 
 /// One line in the append-only execution log. Every consequential execution,
-/// denial, and read-tool call produces a receipt. Receipts form a hash chain:
-/// each hash covers the receipt body plus the previous receipt's hash, so
-/// any edit or deletion inside the log is detectable.
+/// denial, refusal, and read-tool call produces a receipt. Receipts form a
+/// hash chain: each hash covers the receipt body plus the previous receipt's
+/// hash. Edits and deletions that break a link are detected, and a sidecar
+/// head anchor exposes trailing truncation. A writer who rewrites the whole
+/// file AND its anchor with recomputed hashes can still forge: resisting
+/// that needs a key or anchor outside the file system (planned, not in v0.1).
 public struct Receipt: Codable, Sendable, Equatable, Identifiable {
     public enum Decision: String, Codable, Sendable {
         case approved

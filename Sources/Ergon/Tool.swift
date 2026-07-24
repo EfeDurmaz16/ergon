@@ -24,7 +24,8 @@ public protocol ConsequentialTool: Tool {
 
     /// A human-readable rendering of what this call will do, to what.
     /// Shown verbatim on the approval sheet, so write it for the user,
-    /// not for the model.
+    /// not for the model. Called BEFORE the user decides: keep it pure,
+    /// no side effects.
     func preview(_ arguments: Arguments) -> ActionPreview
 }
 

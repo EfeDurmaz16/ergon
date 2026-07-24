@@ -155,6 +155,75 @@ import ErgonTools
         _ = try ReceiptStore(url: url)
     }
 
+    @Test func denyingARestagedActionKeepsTheCrashInterlock() async throws {
+        let url = temporaryLogURL()
+        let argumentsJSON = SpyArguments(value: "x").generatedContent.jsonString
+        let key = Ergon.idempotencyKey(intent: "", toolName: "spy", argumentsJSON: argumentsJSON)
+        // Crash-orphaned pending marker: the action may already have fired.
+        do {
+            let store = try ReceiptStore(url: url)
+            try await store.append(intent: "", toolName: "spy", argumentsJSON: argumentsJSON,
+                                   idempotencyKey: key, decision: .approved,
+                                   outcome: .pending, latencyMS: 0)
+        }
+
+        let spy = SpyConsequentialTool()
+        let engine = try makeEngine(tools: [spy], url: url)
+        let gate = try #require(engine.gatedTools.first as? ConsequentialGate<SpyConsequentialTool>)
+
+        // Re-proposal is DENIED (or the sheet is swiped away). A denial must
+        // not disarm the interlock for a pending it never created.
+        _ = try await gate.call(arguments: .init(value: "x"))
+        let denied = try #require(engine.pendingApprovals.first)
+        _ = try await engine.deny(denied.id)
+
+        // Re-proposed once more and approved: still refused, still zero runs.
+        _ = try await gate.call(arguments: .init(value: "x"))
+        let approved = try #require(engine.pendingApprovals.first)
+        await #expect(throws: ErgonError.unresolvedExecution(idempotencyKey: key)) {
+            try await engine.approve(approved.id)
+        }
+        #expect(spy.executionCount == 0)
+    }
+
+    @Test func trailingTruncationIsDetectedByTheHeadAnchor() async throws {
+        let url = temporaryLogURL()
+        do {
+            let store = try ReceiptStore(url: url)
+            for intent in ["first", "second", "third"] {
+                try await store.append(intent: intent, toolName: "t", argumentsJSON: "{}",
+                                       idempotencyKey: nil, decision: .autoRead,
+                                       outcome: .success("ok"), latencyMS: 1)
+            }
+        }
+        // Delete the trailing COMPLETE line: the remaining prefix is still a
+        // self-consistent chain, only the anchor can expose it.
+        var lines = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        lines.removeLast()
+        try (lines.joined(separator: "\n") + "\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+
+        #expect(!ReceiptStore.verifyChain(at: url))
+        #expect(throws: ErgonError.self) { _ = try ReceiptStore(url: url) }
+    }
+
+    @Test func idempotencyKeyIsStableAcrossJSONKeyOrder() {
+        let a = Ergon.idempotencyKey(intent: "i", toolName: "t",
+                                     argumentsJSON: #"{"a":1,"b":"x"}"#)
+        let b = Ergon.idempotencyKey(intent: "i", toolName: "t",
+                                     argumentsJSON: #"{"b":"x","a":1}"#)
+        #expect(a == b)
+    }
+
+    @Test func idempotencyKeyFieldsCannotCollideAcrossBoundaries() {
+        // Under a naive delimiter scheme these two would concatenate to the
+        // same material; length prefixes must keep them distinct.
+        let a = Ergon.idempotencyKey(intent: "ab", toolName: "c", argumentsJSON: "x")
+        let b = Ergon.idempotencyKey(intent: "a", toolName: "bc", argumentsJSON: "x")
+        #expect(a != b)
+    }
+
     @Test func calendarArgumentsRoundTripWithAndWithoutNotes() throws {
         let full = try CalendarCreateTool.Arguments(GeneratedContent(json: #"""
             {"title": "Dis randevusu", "startISO8601": "2026-07-25T09:00:00+03:00",

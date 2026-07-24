@@ -76,6 +76,9 @@ public final class Ergon {
     ///   - instructions: system guidance for the model. Ergon appends the
     ///     current date, time, and time zone so relative dates resolve.
     ///   - receiptsURL: override the receipt log location (tests, demos).
+    ///     Receipts store intents, arguments, and tool outputs in cleartext;
+    ///     the file is created with until-first-unlock protection on iOS,
+    ///     and rotation is the host's call via `quarantineReceipts(at:)`.
     public init(tools: [any Tool], instructions: String? = nil, receiptsURL: URL? = nil) throws {
         let url = receiptsURL ?? URL.applicationSupportDirectory
             .appending(path: "Ergon/receipts.jsonl")
@@ -264,6 +267,10 @@ public final class Ergon {
         let destination = url.deletingLastPathComponent()
             .appending(path: url.lastPathComponent + ".corrupt-" + stamp)
         try FileManager.default.moveItem(at: url, to: destination)
+        let head = ReceiptStore.headURL(for: url)
+        if FileManager.default.fileExists(atPath: head.path) {
+            try? FileManager.default.moveItem(at: head, to: ReceiptStore.headURL(for: destination))
+        }
         return destination
     }
 
@@ -314,9 +321,28 @@ public final class Ergon {
         }
     }
 
+    /// Keys are exact, not semantic: same intent string, same tool, same
+    /// canonical arguments. Arguments are re-serialized with sorted keys so
+    /// a tool whose JSON key order varies between processes cannot dodge
+    /// idempotency; fields are length-prefixed so no crafted delimiter can
+    /// make two different calls collide.
     nonisolated static func idempotencyKey(intent: String, toolName: String, argumentsJSON: String) -> String {
-        let material = [intent, toolName, argumentsJSON].joined(separator: "\u{0}")
-        return SHA256.hash(data: Data(material.utf8)).map { String(format: "%02x", $0) }.joined()
+        var material = Data()
+        for field in [intent, toolName, canonicalJSON(argumentsJSON)] {
+            let bytes = Data(field.utf8)
+            material.append(Data("\(bytes.count):".utf8))
+            material.append(bytes)
+        }
+        return SHA256.hash(data: material).map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static func canonicalJSON(_ raw: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8), options: [.fragmentsAllowed]),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed]),
+              let string = String(data: data, encoding: .utf8) else {
+            return raw
+        }
+        return string
     }
 
     private nonisolated static func composed(_ instructions: String?) -> String {
