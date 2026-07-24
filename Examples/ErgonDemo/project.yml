@@ -1,0 +1,35 @@
+name: ErgonDemo
+options:
+  bundleIdPrefix: dev.efedurmaz
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  Ergon:
+    path: ../..
+targets:
+  ErgonDemo:
+    type: application
+    platform: iOS
+    sources:
+      - path: ErgonDemo
+    dependencies:
+      - package: Ergon
+        product: Ergon
+      - package: Ergon
+        product: ErgonTools
+    info:
+      path: ErgonDemo/Info.plist
+      properties:
+        CFBundleDisplayName: Ergon
+        UILaunchScreen: {}
+        NSCalendarsFullAccessUsageDescription: "Ergon creates the calendar events you approve."
+        NSRemindersFullAccessUsageDescription: "Ergon creates the reminders you approve."
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        SUPPORTS_MACCATALYST: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: false
