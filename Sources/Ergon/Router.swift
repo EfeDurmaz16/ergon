@@ -10,9 +10,13 @@ import Observation
 @Observable
 public final class Router {
     public private(set) var toolsets: [Toolset]
-    @ObservationIgnored private var engines: [String: Ergon] = [:]
+    // NOT @ObservationIgnored: the UI reads pendingApprovals/isRunning through
+    // these, and each Ergon is itself @Observable, so observation must reach
+    // through the dictionary to the engines' own published state. Ignoring it
+    // would leave the approval sheet blind to a staged call.
+    private var engines: [String: Ergon] = [:]
+    private var general: Ergon
     @ObservationIgnored private let classifier: LanguageModelSession
-    @ObservationIgnored private let general: Ergon
 
     /// Merged pending approvals across all domains, oldest first.
     public var pendingApprovals: [Approval] {
@@ -28,18 +32,23 @@ public final class Router {
     ///   `receipts-general.jsonl` for unrouted small talk.
     public init(toolsets: [Toolset], receiptsDirectory: URL? = nil) throws {
         precondition(!toolsets.isEmpty, "Router needs at least one toolset")
-        self.toolsets = toolsets
         let directory = receiptsDirectory ?? URL.applicationSupportDirectory.appending(path: "Ergon")
+        // Build locals first: every @Observable stored property must be
+        // assigned before any is mutated in place.
+        var builtEngines: [String: Ergon] = [:]
         for toolset in toolsets {
-            engines[toolset.name] = try Ergon(
+            builtEngines[toolset.name] = try Ergon(
                 tools: toolset.tools,
                 instructions: toolset.instructions,
                 receiptsURL: directory.appending(path: "receipts-\(toolset.name).jsonl"))
         }
-        self.general = try Ergon(
+        let builtGeneral = try Ergon(
             tools: [],
             instructions: "Answer briefly in the language of the user's request.",
             receiptsURL: directory.appending(path: "receipts-general.jsonl"))
+        self.toolsets = toolsets
+        self.engines = builtEngines
+        self.general = builtGeneral
         self.classifier = LanguageModelSession(
             instructions: "You route user requests to exactly one toolset. Reply with only the toolset name.")
     }

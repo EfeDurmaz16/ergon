@@ -54,6 +54,21 @@ import Testing
         }
     }
 
+    @Test func stagedApprovalIsVisibleThroughTheRouter() async throws {
+        // The approval sheet reads router.pendingApprovals. If the engines
+        // dictionary were observation-ignored, a staged call would be
+        // invisible to the router and the sheet would never appear.
+        let (router, spy, _) = try makeRouter()
+        let acting = try #require(router.engine(for: "acting"))
+        let gate = try #require(acting.gatedTools.first as? ConsequentialGate<SpyConsequentialTool>)
+
+        #expect(router.pendingApprovals.isEmpty)
+        _ = try await gate.call(arguments: .init(value: "x"))
+
+        #expect(router.pendingApprovals.count == 1)
+        #expect(spy.executionCount == 0)
+    }
+
     @Test func mergedReceiptsSortByTimestamp() async throws {
         let (router, spy, _) = try makeRouter()
         let acting = try #require(router.engine(for: "acting"))
