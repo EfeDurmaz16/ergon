@@ -217,6 +217,12 @@ public final class Ergon {
         await store.all()
     }
 
+    /// Re-verifies a receipt log's hash chain from disk. Tamper evidence is
+    /// only a claim if anyone can check it.
+    public nonisolated static func verifyReceipts(at url: URL) -> Bool {
+        ReceiptStore.verifyChain(at: url)
+    }
+
     // MARK: - Internal
 
     func stage(_ action: StagedAction) -> UUID {
