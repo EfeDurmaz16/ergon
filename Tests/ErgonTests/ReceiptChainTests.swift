@@ -82,6 +82,25 @@ import Testing
         }
     }
 
+    @Test func newlinesAndControlCharactersCannotBreakFraming() async throws {
+        let url = temporaryLogURL()
+        let store = try ReceiptStore(url: url)
+        _ = try await store.append(intent: "line one\nline two\r\n{\"fake\":\"receipt\"}",
+                                   toolName: "t\nx", argumentsJSON: "{\"v\":\"a\\nb\"}",
+                                   idempotencyKey: nil, decision: .autoRead,
+                                   outcome: .success("out\nput"), latencyMS: 1)
+        _ = try await store.append(intent: "second", toolName: "t", argumentsJSON: "{}",
+                                   idempotencyKey: nil, decision: .autoRead,
+                                   outcome: .success("ok"), latencyMS: 1)
+
+        // JSON escaping keeps one receipt per physical line: injected
+        // newlines in intent, tool name, or output must not create lines.
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.split(separator: "\n").count == 2)
+        #expect(ReceiptStore.verifyChain(at: url))
+        withExtendedLifetime(store) {}
+    }
+
     @Test func reopenRestoresIdempotencyIndexes() async throws {
         let url = temporaryLogURL()
         do {
