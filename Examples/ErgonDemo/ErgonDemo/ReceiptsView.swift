@@ -1,5 +1,6 @@
 import SwiftUI
 import Ergon
+import ErgonTools
 
 /// The audit surface: the verified receipt trail (newest first) plus the
 /// in-memory resolution diagnostics. Machine values use monospaced digits so
@@ -9,10 +10,30 @@ struct ReceiptsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var receipts: [Receipt] = []
+    @State private var notes: [(name: String, text: String)] = []
 
     var body: some View {
         NavigationStack {
             List {
+                // Notes live in Ergon's own storage, not the Apple Notes app,
+                // so this is the only place the user can actually see them.
+                Section("Notes in Ergon") {
+                    if notes.isEmpty {
+                        Text("No notes saved yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(notes, id: \.name) { note in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(note.name)
+                                    .font(.subheadline.weight(.medium))
+                                Text(note.text)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
                 Section("Receipts") {
                     if receipts.isEmpty {
                         Text("No receipts yet.")
@@ -31,7 +52,7 @@ struct ReceiptsView: View {
                     }
                 }
             }
-            .navigationTitle("Receipts")
+            .navigationTitle("Notes and receipts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -41,6 +62,7 @@ struct ReceiptsView: View {
             .task {
                 let all = await model.receipts()
                 receipts = Array(all.reversed())
+                notes = savedNotes()
             }
         }
     }

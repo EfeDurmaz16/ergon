@@ -28,12 +28,13 @@ enum NotesStore {
         return dir
     }
 
-    /// Keeps only alphanumerics, space, dash, underscore; replaces everything
-    /// else (including "/" and ".") with "_" so the result can never escape
-    /// the notes directory.
+    /// Keeps only alphanumerics, space, dash, underscore, so the result can
+    /// never escape the notes directory. Disallowed characters are dropped
+    /// rather than substituted: replacing them turned "tomorrow's trip" into
+    /// "tomorrow_s trip" on screen for no safety gain.
     static func sanitize(_ name: String) throws -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " -_"))
-        let cleaned = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
+        let cleaned = String(name.unicodeScalars.filter { allowed.contains($0) }.map(Character.init))
         let trimmed = cleaned.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { throw NotesToolError.invalidName(name) }
         return trimmed
@@ -42,6 +43,21 @@ enum NotesStore {
     static func fileURL(for name: String) throws -> URL {
         let safe = try sanitize(name)
         return try directory().appendingPathComponent(safe + ".txt")
+    }
+}
+
+/// Every note Ergon has saved, name and text, sorted by name. Hosts need this
+/// to show the notes anywhere other than by asking the model for them: a note
+/// the user cannot find is a note they do not believe was written.
+public func savedNotes() -> [(name: String, text: String)] {
+    guard let directory = try? NotesStore.directory(),
+          let files = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else {
+        return []
+    }
+    return files.filter { $0.hasSuffix(".txt") }.sorted().map { file in
+        let name = String(file.dropLast(4))
+        let text = (try? String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8)) ?? ""
+        return (name, text)
     }
 }
 
