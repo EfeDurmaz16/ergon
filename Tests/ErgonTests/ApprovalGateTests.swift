@@ -175,6 +175,24 @@ import FoundationModels
         #expect(all[0].idempotencyKey == nil)
     }
 
+    @Test func concurrentApprovesOfSameTokenExecuteOnce() async throws {
+        let spy = SpyConsequentialTool()
+        let engine = try makeEngine(tools: [spy])
+        let gate = try #require(engine.gatedTools.first as? ConsequentialGate<SpyConsequentialTool>)
+        _ = try await gate.call(arguments: .init(value: "x"))
+        let approval = try #require(engine.pendingApprovals.first)
+
+        // Two racing approvals: the token is consumed synchronously, so
+        // exactly one may execute, the other must see unknownApproval.
+        let first = Task { @MainActor in try await engine.approve(approval.id) }
+        let second = Task { @MainActor in try await engine.approve(approval.id) }
+        let outcomes = [await first.result, await second.result]
+
+        let successes = outcomes.filter { (try? $0.get()) != nil }
+        #expect(successes.count == 1)
+        #expect(spy.executionCount == 1)
+    }
+
     @Test func idempotencyKeyIsDeterministic() {
         let a = Ergon.idempotencyKey(intent: "i", toolName: "t", argumentsJSON: "{}")
         let b = Ergon.idempotencyKey(intent: "i", toolName: "t", argumentsJSON: "{}")

@@ -160,10 +160,13 @@ public final class Ergon {
             throw ErgonError.unknownApproval
         }
         let approval = pendingApprovals[index]
+        // Consume the token synchronously, before any suspension point: a
+        // second approve(id) racing this one must get unknownApproval, not a
+        // second execution. This is MainActor state, so no interleave window.
+        pendingApprovals.remove(at: index)
+        staged[id] = nil
 
         if let prior = await store.successReceipt(for: approval.idempotencyKey) {
-            pendingApprovals.remove(at: index)
-            staged[id] = nil
             return prior
         }
         if await store.hasUnresolvedPending(for: approval.idempotencyKey) {
@@ -176,8 +179,6 @@ public final class Ergon {
                                argumentsJSON: approval.argumentsJSON,
                                idempotencyKey: approval.idempotencyKey,
                                decision: .approved, outcome: .pending, latencyMS: 0)
-        pendingApprovals.remove(at: index)
-        staged[id] = nil
 
         let start = ContinuousClock.now
         let outcome: Receipt.Outcome
