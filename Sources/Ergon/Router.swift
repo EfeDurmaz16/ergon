@@ -16,7 +16,16 @@ public final class Router {
     // would leave the approval sheet blind to a staged call.
     private var engines: [String: Ergon] = [:]
     private var general: Ergon
-    @ObservationIgnored private let classifier: LanguageModelSession
+
+    /// Classification is stateless, so it gets a fresh session per call. A
+    /// single long-lived classifier session appends every request and reply to
+    /// its transcript and crosses the 4096-token window after a dozen or so
+    /// intents, after which every route fails with a context overflow and the
+    /// whole assistant appears dead.
+    @ObservationIgnored private static let classifierInstructions = """
+    You route user requests to exactly one toolset. Reply with only the toolset name.
+    Choose by what the user wants done, not by nouns they happen to mention. A request to be reminded to call someone is a reminder, not a contact lookup.
+    """
 
     /// Merged pending approvals across all domains, oldest first.
     public var pendingApprovals: [Approval] {
@@ -49,8 +58,6 @@ public final class Router {
         self.toolsets = toolsets
         self.engines = builtEngines
         self.general = builtGeneral
-        self.classifier = LanguageModelSession(
-            instructions: "You route user requests to exactly one toolset. Reply with only the toolset name.")
     }
 
     /// Classify, then forward the chosen engine's stream. Emits `.routed`
@@ -103,8 +110,10 @@ public final class Router {
         return all.sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// Prewarming loads the model itself, which every session shares, so
+    /// warming the general engine is enough for the classifier too.
     public func prewarm() {
-        classifier.prewarm()
+        general.prewarm()
     }
 
     /// The domain this intent would route to, without running it. Useful for
@@ -123,6 +132,7 @@ public final class Router {
                                       description: "The single best toolset name for the request.",
                                       anyOf: names)
         let prompt = "Toolsets:\n\(menu)\n\nRequest: \(intent)\n\nBest toolset:"
+        let classifier = LanguageModelSession(instructions: Self.classifierInstructions)
         let response = try await classifier.respond(to: prompt, schema: schema,
                                                     options: GenerationOptions())
         let choice = (try? response.content.value(String.self)) ?? "general"

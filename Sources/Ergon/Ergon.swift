@@ -47,6 +47,8 @@ public final class Ergon {
     }
 
     @ObservationIgnored private var session: LanguageModelSession
+    /// Kept so the session can be rebuilt after a context overflow.
+    @ObservationIgnored private var composedInstructions = ""
     private let store: ReceiptStore
     @ObservationIgnored private var staged: [UUID: StagedEntry] = [:]
     @ObservationIgnored private var continuation: AsyncThrowingStream<Event, Error>.Continuation?
@@ -111,7 +113,8 @@ public final class Ergon {
         // ponytail: instructions capture the date at init; a session that
         // straddles midnight resolves "tomorrow" against the old day. Create
         // a new Ergon per conversation if that matters.
-        self.session = LanguageModelSession(tools: gated, instructions: Self.composed(instructions))
+        self.composedInstructions = Self.composed(instructions)
+        self.session = LanguageModelSession(tools: gated, instructions: composedInstructions)
     }
 
     /// Loads the model into memory ahead of the first intent to cut
@@ -144,15 +147,26 @@ public final class Ergon {
             let task = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    var finalText = ""
-                    for try await snapshot in self.session.streamResponse(to: intent) {
-                        finalText = snapshot.content
-                        continuation.yield(.partial(snapshot.content))
-                    }
-                    continuation.yield(.reply(finalText))
+                    try await self.stream(intent, into: continuation)
                     continuation.finish()
                 } catch let error as LanguageModelSession.GenerationError {
-                    continuation.finish(throwing: ErgonError(error))
+                    if case .exceededContextWindowSize = error {
+                        // The transcript outgrew the 4096-token window. Every
+                        // later intent would fail the same way, so the session
+                        // starts over and the intent is retried once: losing
+                        // the conversation history beats an assistant that is
+                        // permanently dead from this turn on.
+                        self.session = LanguageModelSession(
+                            tools: self.gatedTools, instructions: self.composedInstructions)
+                        do {
+                            try await self.stream(intent, into: continuation)
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: ErgonError.contextOverflow)
+                        }
+                    } else {
+                        continuation.finish(throwing: ErgonError(error))
+                    }
                 } catch let error as ErgonError {
                     continuation.finish(throwing: error)
                 } catch {
@@ -278,6 +292,16 @@ public final class Ergon {
     }
 
     // MARK: - Internal
+
+    private func stream(_ intent: String,
+                        into continuation: AsyncThrowingStream<Event, Error>.Continuation) async throws {
+        var finalText = ""
+        for try await snapshot in session.streamResponse(to: intent) {
+            finalText = snapshot.content
+            continuation.yield(.partial(snapshot.content))
+        }
+        continuation.yield(.reply(finalText))
+    }
 
     func stage(_ action: StagedAction) -> UUID {
         let approval = Approval(

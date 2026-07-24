@@ -25,7 +25,7 @@ public enum ErgonToolkit {
     /// Calendar domain: query, create, update, delete.
     public static func calendar() -> Toolset {
         Toolset(name: "calendar",
-                description: "calendar events: check, create, reschedule, or delete appointments and meetings",
+                description: "appointments and meetings that occupy a time slot. Examples: book a dentist appointment tomorrow at 9, am I free Friday afternoon, move my meeting to 3, cancel my appointment, yarin 9'a randevu koy",
                 tools: [CalendarQueryTool(), CalendarCreateTool(),
                         UpdateCalendarEventTool(), DeleteCalendarEventTool()],
                 instructions: calendarInstructions)
@@ -34,7 +34,7 @@ public enum ErgonToolkit {
     /// Reminders domain: list, create, complete, delete.
     public static func reminders() -> Toolset {
         Toolset(name: "reminders",
-                description: "reminders and to-dos: list, add, complete, or delete tasks",
+                description: "a task the user wants to be reminded to do later. Examples: remind me to call the bank, remind me to buy milk, add it to my list, what are my reminders, mark buy milk done, bana hatirlat",
                 tools: [ListRemindersTool(), ReminderCreateTool(),
                         CompleteReminderTool(), DeleteReminderTool()],
                 instructions: stagingRule)
@@ -43,7 +43,7 @@ public enum ErgonToolkit {
     /// Maps domain: search places, geocode, travel time. All read-only.
     public static func maps() -> Toolset {
         Toolset(name: "maps",
-                description: "places and travel: find nearby spots, look up an address, or get travel time",
+                description: "places, addresses, and travel. Examples: coffee shops near me, where am I, what is the address of X, how long to drive to Ankara, yakinimda eczane",
                 tools: [CurrentLocationTool(), SearchPlacesTool(),
                         GeocodeAddressTool(), ReverseGeocodeTool(), TravelETATool()],
                 instructions: """
@@ -57,7 +57,7 @@ public enum ErgonToolkit {
     /// Weather domain (Open-Meteo, keyless). Read-only.
     public static func weather() -> Toolset {
         Toolset(name: "weather",
-                description: "weather: current conditions and forecast for a place",
+                description: "weather and forecast. Examples: what is the weather, is it going to rain tomorrow, how cold is it in Ankara, hava nasil",
                 tools: [WeatherTool()],
                 instructions: "Reply in the language of the request. For the weather here or nearby, call getWeather with no coordinates: it uses the user's own location. Keep replies short.")
     }
@@ -65,7 +65,7 @@ public enum ErgonToolkit {
     /// Contacts domain: find, create.
     public static func contacts() -> Toolset {
         Toolset(name: "contacts",
-                description: "contacts: look up someone's number or email, or add a new contact",
+                description: "the address book itself: reading a saved person's phone number or email, or saving a new person. Examples: what is Ahmet's number, do I have an email for Ayse, add a contact named X. Not for reminding the user to contact someone.",
                 tools: [FindContactTool(), CreateContactTool()],
                 instructions: stagingRule)
     }
@@ -76,7 +76,7 @@ public enum ErgonToolkit {
     /// user have to be told that plainly.
     public static func notes() -> Toolset {
         Toolset(name: "notes",
-                description: "Ergon's own notes: list, read, write, or delete short text notes kept inside Ergon",
+                description: "short text notes kept inside Ergon. Examples: write a note about X, what do my notes say, read my shopping note, delete that note, not al",
                 tools: [ListNotesTool(), ReadNoteTool(), WriteNoteTool(), DeleteNoteTool()],
                 instructions: stagingRule + """
 
@@ -101,7 +101,7 @@ public enum ErgonToolkit {
     /// Alarms and timers domain (iOS only).
     public static func alarms() -> Toolset {
         Toolset(name: "alarms",
-                description: "alarms and timers: set an alarm, start a countdown, or cancel one",
+                description: "alarms that ring and countdown timers. Examples: set a timer for 10 minutes, wake me at 7:30, what timers are running, cancel my timer, 10 dakika sayac kur",
                 tools: [CreateAlarmTool(), CreateTimerTool(), ListAlarmsTool(), CancelAlarmTool()],
                 instructions: stagingRule)
     }
@@ -111,7 +111,7 @@ public enum ErgonToolkit {
     /// Device and clipboard domain (iOS only).
     public static func device() -> Toolset {
         Toolset(name: "device",
-                description: "device: battery status, low power mode, and the clipboard",
+                description: "the phone hardware itself: battery charge, Low Power Mode, and the clipboard. Examples: what is my battery level, am I in low power mode, what is on my clipboard, copy this text",
                 tools: [BatteryStatusTool(), ReadClipboardTool(), CopyToClipboardTool()],
                 instructions: stagingRule + """
 
