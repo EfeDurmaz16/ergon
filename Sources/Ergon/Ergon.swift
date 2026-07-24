@@ -16,6 +16,9 @@ public final class Ergon {
         case needsApproval(Approval)
         case executed(Receipt)
         case reply(String)
+        /// Emitted only by ``Router`` streams: which toolset the intent
+        /// resolved to ("general" when none matched).
+        case routed(String)
     }
 
     public enum Availability: Sendable, Equatable {

@@ -6,16 +6,29 @@ extension View {
     /// Dismissing the sheet without deciding denies the shown approval:
     /// deny by default extends to the UI.
     public func approvalSheet(_ engine: Ergon) -> some View {
-        modifier(ApprovalSheetModifier(engine: engine))
+        modifier(ApprovalSheetModifier(
+            pending: { engine.pendingApprovals },
+            approve: { try await engine.approve($0) },
+            deny: { try await engine.deny($0) }))
+    }
+
+    /// Router variant: one sheet over every domain's pending approvals.
+    public func approvalSheet(_ router: Router) -> some View {
+        modifier(ApprovalSheetModifier(
+            pending: { router.pendingApprovals },
+            approve: { try await router.approve($0) },
+            deny: { try await router.deny($0) }))
     }
 }
 
 struct ApprovalSheetModifier: ViewModifier {
-    @Bindable var engine: Ergon
+    let pending: () -> [Approval]
+    let approve: @MainActor (UUID) async throws -> Receipt
+    let deny: @MainActor (UUID) async throws -> Receipt
 
     func body(content: Content) -> some View {
         content.sheet(item: current) { approval in
-            ApprovalSheetView(approval: approval, engine: engine)
+            ApprovalSheetView(approval: approval, approve: approve, deny: deny)
                 .id(approval.id)  // fresh working/error state per approval
                 .presentationDetents([.medium])
         }
@@ -23,10 +36,10 @@ struct ApprovalSheetModifier: ViewModifier {
 
     private var current: Binding<Approval?> {
         Binding(
-            get: { engine.pendingApprovals.first },
+            get: { pending().first },
             set: { newValue in
-                if newValue == nil, let shown = engine.pendingApprovals.first {
-                    Task { try? await engine.deny(shown.id) }
+                if newValue == nil, let shown = pending().first {
+                    Task { _ = try? await deny(shown.id) }
                 }
             })
     }
@@ -34,7 +47,8 @@ struct ApprovalSheetModifier: ViewModifier {
 
 struct ApprovalSheetView: View {
     let approval: Approval
-    let engine: Ergon
+    let approve: @MainActor (UUID) async throws -> Receipt
+    let deny: @MainActor (UUID) async throws -> Receipt
     @State private var working = false
     @State private var errorText: String?
 
@@ -62,7 +76,7 @@ struct ApprovalSheetView: View {
             Spacer(minLength: 0)
             VStack(spacing: 12) {
                 Button {
-                    decide { try await engine.approve(approval.id) }
+                    decide { _ = try await approve(approval.id) }
                 } label: {
                     Text("Approve").frame(maxWidth: .infinity)
                 }
@@ -70,7 +84,7 @@ struct ApprovalSheetView: View {
                 .controlSize(.large)
 
                 Button(role: .cancel) {
-                    decide { try await engine.deny(approval.id) }
+                    decide { _ = try await deny(approval.id) }
                 } label: {
                     Text("Reject")
                         .frame(maxWidth: .infinity)
