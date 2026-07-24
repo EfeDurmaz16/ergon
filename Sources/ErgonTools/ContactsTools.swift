@@ -53,7 +53,7 @@ public struct FindContactTool: ReadTool {
         do {
             try await requestContactsAccess(store)
         } catch {
-            return "Could not search contacts: \(error)"
+            return "Could not search contacts: \(error.localizedDescription)"
         }
 
         let predicate = CNContact.predicateForContacts(matchingName: arguments.name)
@@ -61,7 +61,7 @@ public struct FindContactTool: ReadTool {
         do {
             matches = try store.unifiedContacts(matching: predicate, keysToFetch: contactKeys())
         } catch {
-            return "Could not search contacts: \(error)"
+            return "Could not search contacts: \(error.localizedDescription)"
         }
 
         if matches.isEmpty {

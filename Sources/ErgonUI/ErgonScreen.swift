@@ -16,7 +16,7 @@ public struct ErgonScreen: Equatable, Sendable {
     @Guide(description: "One or two plain sentences summarizing the answer.")
     public var summary: String
 
-    @Guide(description: "The key facts, each a short label and its value.", .maximumCount(4))
+    @Guide(description: "Key facts copied from the information given, each a short label and its value. Leave empty when the information contains no concrete values.", .maximumCount(4))
     public var facts: [ErgonFact]
 
     @Guide(description: "Up to three short tappable follow-up suggestions, imperative phrasing.", .maximumCount(3))

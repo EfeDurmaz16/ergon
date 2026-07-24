@@ -25,6 +25,59 @@ enum AlarmToolError: Error, LocalizedError {
     }
 }
 
+/// AlarmKit hands back an `Alarm` with an id, a schedule, a countdown, and a
+/// state, but no label: the title lives in the presentation, which the
+/// framework keeps to itself. Labels are therefore kept alongside, so a listed
+/// alarm reads as "Pizza, 10 min timer" instead of a bare UUID, and so the
+/// user can cancel one by name.
+enum AlarmLabels {
+    private static let key = "ErgonAlarmLabels"
+
+    static func name(for id: UUID) -> String? {
+        stored()[id.uuidString]
+    }
+
+    static func set(_ label: String, for id: UUID) {
+        var map = stored()
+        map[id.uuidString] = label
+        UserDefaults.standard.set(map, forKey: key)
+    }
+
+    static func forget(_ id: UUID) {
+        var map = stored()
+        map[id.uuidString] = nil
+        UserDefaults.standard.set(map, forKey: key)
+    }
+
+    private static func stored() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+    }
+}
+
+/// One human line per alarm. No UUID: a small model prints identifiers it is
+/// shown straight into its reply, and the user has no use for them.
+func describe(_ alarm: Alarm) -> String {
+    var parts = [AlarmLabels.name(for: alarm.id) ?? "Alarm"]
+    switch alarm.schedule {
+    case .fixed(let date):
+        parts.append("at \(formatDay(date))")
+    case .relative(let relative):
+        parts.append(String(format: "at %02d:%02d", relative.time.hour, relative.time.minute))
+    default:
+        if let seconds = alarm.countdownDuration?.preAlert {
+            parts.append("\(Int((seconds / 60).rounded())) min timer")
+        }
+    }
+    switch alarm.state {
+    case .scheduled: parts.append("scheduled")
+    case .countdown: parts.append("counting down")
+    case .paused: parts.append("paused")
+    case .alerting: parts.append("ringing now")
+    @unknown default: break
+    }
+    return parts.joined(separator: ", ")
+}
+
 private enum AlarmAccess {
     static func ensure() async throws {
         switch AlarmManager.shared.authorizationState {
@@ -78,7 +131,9 @@ public struct CreateAlarmTool: ConsequentialTool {
         let config = AlarmManager.AlarmConfiguration.alarm(
             schedule: .fixed(date),
             attributes: AlarmAccess.attributes(title: arguments.label))
-        _ = try await AlarmManager.shared.schedule(id: UUID(), configuration: config)
+        let id = UUID()
+        _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
+        AlarmLabels.set(arguments.label, for: id)
         return "Alarm \"\(arguments.label)\" set for \(formatDay(date))."
     }
 }
@@ -108,7 +163,9 @@ public struct CreateTimerTool: ConsequentialTool {
         let config = AlarmManager.AlarmConfiguration.timer(
             duration: TimeInterval(arguments.minutes * 60),
             attributes: AlarmAccess.attributes(title: arguments.label))
-        _ = try await AlarmManager.shared.schedule(id: UUID(), configuration: config)
+        let id = UUID()
+        _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
+        AlarmLabels.set(arguments.label, for: id)
         return "Timer \"\(arguments.label)\" started for \(arguments.minutes) minutes."
     }
 }
@@ -128,41 +185,46 @@ public struct ListAlarmsTool: ReadTool {
             try await AlarmAccess.ensure()
             let alarms = try AlarmManager.shared.alarms
             guard !alarms.isEmpty else { return "No alarms or timers are scheduled." }
-            return "Scheduled: " + alarms.map { $0.id.uuidString.prefix(8) }.joined(separator: ", ")
+            return "Scheduled:\n" + alarms.map(describe).joined(separator: "\n")
         } catch {
             return "Could not read alarms: \(error.localizedDescription)"
         }
     }
 }
 
-/// Cancels a scheduled alarm by its short id prefix. Consequential, reversible.
+/// Cancels a scheduled alarm by its label. Consequential, reversible.
 public struct CancelAlarmTool: ConsequentialTool {
     public let name = "cancelAlarm"
-    public let description = "Cancel a scheduled alarm or timer by its short id shown in the list."
+    public let description = "Cancel a scheduled alarm or timer by its label, as shown by listAlarms."
     public let isReversible = true
 
     @Generable
     public struct Arguments {
-        @Guide(description: "The short id prefix of the alarm to cancel, from listAlarms")
-        var idPrefix: String
+        @Guide(description: "The label of the alarm or timer to cancel, like 'Pizza' or 'Wake up'")
+        var label: String
     }
 
     public init() {}
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
-        ActionPreview(title: "Cancel alarm", detail: arguments.idPrefix)
+        ActionPreview(title: "Cancel alarm", detail: arguments.label)
     }
 
+    /// Matches on the label the user actually sees. Falls back to the only
+    /// scheduled alarm when there is exactly one, since "cancel my timer" is
+    /// unambiguous then even if the model paraphrases the label.
     public func call(arguments: Arguments) async throws -> String {
         try await AlarmAccess.ensure()
         let alarms = try AlarmManager.shared.alarms
-        guard let match = alarms.first(where: {
-            $0.id.uuidString.lowercased().hasPrefix(arguments.idPrefix.lowercased())
-        }) else {
-            throw AlarmToolError.notFound(arguments.idPrefix)
-        }
+        let wanted = arguments.label.lowercased()
+        let match = alarms.first {
+            (AlarmLabels.name(for: $0.id) ?? "").lowercased().contains(wanted)
+        } ?? (alarms.count == 1 ? alarms.first : nil)
+        guard let match else { throw AlarmToolError.notFound(arguments.label) }
         try AlarmManager.shared.cancel(id: match.id)
-        return "Cancelled alarm \(match.id.uuidString.prefix(8))."
+        let name = AlarmLabels.name(for: match.id) ?? "alarm"
+        AlarmLabels.forget(match.id)
+        return "Cancelled \(name)."
     }
 }
 #endif

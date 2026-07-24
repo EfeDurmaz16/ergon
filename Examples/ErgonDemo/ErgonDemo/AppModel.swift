@@ -80,6 +80,7 @@ final class AppModel {
             var sawExecuted = false
             var finalReply = ""
             var domain: String?
+            var toolOutput: [String] = []
             do {
                 for try await event in router.run(intent) {
                     switch event {
@@ -94,8 +95,16 @@ final class AppModel {
                         setAssistant(id: assistantID, text: text)
                     case .needsApproval:
                         sawApproval = true
-                    case .executed:
+                    case .executed(let receipt):
                         sawExecuted = true
+                        // Ground the screen on what the tools actually
+                        // returned, not only on the model's one-sentence
+                        // paraphrase. The paraphrase drops values the tool
+                        // did return (a coordinate, a distance), and the
+                        // presenter then fills the gap by inventing them.
+                        if case .success(let output) = receipt.outcome {
+                            toolOutput.append(output)
+                        }
                     }
                 }
             } catch let error as ErgonError {
@@ -104,9 +113,11 @@ final class AppModel {
                 banner = error.localizedDescription
             }
 
-            // Informational answer: render it as a native screen.
+            // Informational answer: render it as a native screen, grounded in
+            // the reply plus every tool output behind it.
             if !sawApproval, !finalReply.isEmpty {
-                await presenter.present(intent, grounding: finalReply)
+                let grounding = ([finalReply] + toolOutput).joined(separator: "\n")
+                await presenter.present(intent, grounding: grounding)
             }
             logResolutionIfNeeded(intent: intent, reply: finalReply, domain: domain,
                                   sawApproval: sawApproval, sawExecuted: sawExecuted)

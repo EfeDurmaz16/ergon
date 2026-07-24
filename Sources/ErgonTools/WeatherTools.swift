@@ -32,7 +32,10 @@ private struct OpenMeteoResponse: Decodable {
         var weather_code: [Int]
         var temperature_2m_max: [Double]
         var temperature_2m_min: [Double]
-        var precipitation_probability_max: [Double]
+        // Open-Meteo sends null entries here for days it has no probability
+        // for. A non-optional [Double] fails the whole decode, which used to
+        // turn a working forecast into "Could not fetch weather".
+        var precipitation_probability_max: [Double?]
     }
     var current: Current
     var daily: Daily
@@ -81,8 +84,12 @@ public struct WeatherTool: ReadTool {
             let days = min(3, d.time.count, d.weather_code.count, d.temperature_2m_max.count, d.temperature_2m_min.count)
             for i in 0..<days {
                 out += " \(d.time[i]): \(weatherPhrase(forCode: d.weather_code[i]))," +
-                    " \(Int(d.temperature_2m_min[i].rounded()))-\(Int(d.temperature_2m_max[i].rounded()))°C," +
-                    " \(Int(d.precipitation_probability_max[i]))% precip."
+                    " \(Int(d.temperature_2m_min[i].rounded()))-\(Int(d.temperature_2m_max[i].rounded()))°C"
+                if i < d.precipitation_probability_max.count,
+                   let precipitation = d.precipitation_probability_max[i] {
+                    out += ", \(Int(precipitation))% precip"
+                }
+                out += "."
             }
             return out
         } catch {

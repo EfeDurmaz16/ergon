@@ -18,7 +18,17 @@ public final class ScreenPresenter {
     @ObservationIgnored private let session: LanguageModelSession
 
     public init(instructions: String? = nil) {
-        let base = instructions ?? "You turn information into a compact screen. Answer in the language of the request. Keep the title to a few words and the summary to one or two sentences. Put concrete numbers and names in facts. Suggestions are short next actions the user might tap."
+        // The old wording ("put concrete numbers and names in facts") demanded
+        // rows from text that often has none, so the model padded the screen
+        // with invented values: a coordinate no tool returned, a timezone
+        // nobody asked for, rows reading "Not specified". Facts are now opt-in
+        // and must be copied, not composed.
+        let base = instructions ?? """
+        You turn information you are given into a compact screen. Answer in the language of the request.
+        Keep the title to a few words and the summary to one or two sentences.
+        Facts are optional. Include a fact only when its value appears in the information you were given, and copy that value exactly. Never invent a number, coordinate, date, name, or unit, and never pad the screen with rows like "Not specified" or "Unknown": leave facts empty instead.
+        Suggestions are short next actions the user might tap.
+        """
         self.session = LanguageModelSession(instructions: base)
     }
 

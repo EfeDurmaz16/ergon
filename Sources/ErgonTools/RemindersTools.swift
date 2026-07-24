@@ -26,11 +26,10 @@ public struct ListRemindersTool: ReadTool {
     public let name = "listReminders"
     public let description = "Lists titles and due dates of incomplete reminders."
 
+    // No arguments. The placeholder field this used to carry only gave the
+    // model something meaningless to fill in and get wrong.
     @Generable
-    public struct Arguments {
-        @Guide(description: "Unused placeholder, pass empty string")
-        var ignored: String?
-    }
+    public struct Arguments {}
 
     public init() {}
 
@@ -110,11 +109,17 @@ public struct DeleteReminderTool: ConsequentialTool {
         try await Access.ensureReminders()
         let fragment = arguments.title
         return try await withReminders { reminders in
-            guard let match = reminders.first(where: {
-                $0.title?.localizedCaseInsensitiveContains(fragment) ?? false
-            }) else {
-                throw ReminderToolError.notFound(fragment)
+            // Deletion is irreversible, so it fails closed on ambiguity rather
+            // than silently taking the first match, and it never reaches past
+            // an open reminder to delete a completed one with a similar title.
+            let matches = reminders.filter {
+                !$0.isCompleted && ($0.title?.localizedCaseInsensitiveContains(fragment) ?? false)
             }
+            guard !matches.isEmpty else { throw ReminderToolError.notFound(fragment) }
+            guard matches.count == 1 else {
+                throw ReminderToolError.ambiguous(matches.compactMap(\.title))
+            }
+            let match = matches[0]
             let matchedTitle = match.title ?? fragment
             try sharedEventStore.remove(match, commit: true)
             return "Deleted reminder \"\(matchedTitle)\"."
@@ -124,11 +129,14 @@ public struct DeleteReminderTool: ConsequentialTool {
 
 enum ReminderToolError: Error, LocalizedError {
     case notFound(String)
+    case ambiguous([String])
 
     var errorDescription: String? {
         switch self {
         case .notFound(let fragment):
-            return "No reminder found matching \"\(fragment)\"."
+            return "No open reminder found matching \"\(fragment)\"."
+        case .ambiguous(let titles):
+            return "Several reminders match: \"\(titles.joined(separator: "\", \""))\". Ask the user which one."
         }
     }
 }
