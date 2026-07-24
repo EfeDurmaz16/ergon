@@ -6,6 +6,25 @@ import EventKit
 /// calendar, receipt visible. Calendar permission is pre-granted via
 /// `simctl privacy` so no system alert interrupts the run.
 final class GoldenFlowUITests: XCTestCase {
+    /// The demo now checks the REAL calendar, so a leftover event from a
+    /// previous run would be a genuine conflict and the flow would correctly
+    /// warn instead of staging. Clear tomorrow's window first so the golden
+    /// path sees a free slot.
+    @MainActor
+    override func setUp() async throws {
+        let store = EKEventStore()
+        let granted = try await store.requestFullAccessToEvents()
+        guard granted else { return }
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date())!
+        let start = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: tomorrow)!
+        let end = calendar.date(bySettingHour: 23, minute: 59, second: 0, of: tomorrow)!
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        for event in store.events(matching: predicate) {
+            try? store.remove(event, span: .thisEvent, commit: true)
+        }
+    }
+
     @MainActor
     func testTurkishGoldenFlowCreatesRealEvent() throws {
         let app = XCUIApplication()
