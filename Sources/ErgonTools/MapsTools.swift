@@ -216,36 +216,67 @@ public struct ReverseGeocodeTool: ReadTool {
 public struct TravelETATool: ReadTool {
     @Generable
     public struct Arguments {
-        @Guide(description: "Starting latitude. Omit to start from the user's current location.")
+        @Guide(description: "Destination as a place name or address, like 'Bursa city center' or 'Ataturk Airport'. Prefer this over coordinates.")
+        public var toPlace: String?
+        @Guide(description: "Starting place name or address. Omit to start from the user's current location.")
+        public var fromPlace: String?
+        @Guide(description: "Starting latitude, only if you were given one. Omit to start from the user's current location.")
         public var fromLatitude: Double?
-        @Guide(description: "Starting longitude. Omit to start from the user's current location.")
+        @Guide(description: "Starting longitude, only if you were given one. Omit to start from the user's current location.")
         public var fromLongitude: Double?
-        @Guide(description: "Destination latitude")
-        public var toLatitude: Double
-        @Guide(description: "Destination longitude")
-        public var toLongitude: Double
+        @Guide(description: "Destination latitude, only if you were given one. Prefer toPlace.")
+        public var toLatitude: Double?
+        @Guide(description: "Destination longitude, only if you were given one. Prefer toPlace.")
+        public var toLongitude: Double?
         @Guide(description: "Travel mode", .anyOf(["driving", "walking", "transit"]))
         public var mode: String
     }
 
     public let name = "travelETA"
-    public let description = "Estimate travel time and distance between two coordinates for a given travel mode."
+    public let description = "Estimate travel time and distance to a place for a given travel mode. Name the destination; it is looked up for you. Leave the start empty to travel from where the user is."
 
     public init() {}
+
+    /// Looks a place name up rather than trusting a coordinate the model
+    /// invented. Guessed destination coordinates are not a small error: they
+    /// silently turn a 40 km drive into a 330 km one, and the answer still
+    /// looks authoritative.
+    private func resolve(place: String) async -> CLLocationCoordinate2D? {
+        guard let request = MKGeocodingRequest(addressString: place),
+              let item = try? await request.mapItems.first else { return nil }
+        return item.placemark.coordinate
+    }
 
     public func call(arguments: Arguments) async throws -> String {
         let from: CLLocationCoordinate2D
         if let lat = arguments.fromLatitude, let lon = arguments.fromLongitude {
             from = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        } else if let place = arguments.fromPlace, !place.isEmpty {
+            guard let resolved = await resolve(place: place) else {
+                return "Could not find a place called '\(place)'."
+            }
+            from = resolved
         } else {
             switch await CurrentLocation.fix() {
             case .unavailable(let message): return message
             case .at(let location): from = location.coordinate
             }
         }
+
+        let to: CLLocationCoordinate2D
+        if let place = arguments.toPlace, !place.isEmpty {
+            guard let resolved = await resolve(place: place) else {
+                return "Could not find a place called '\(place)'."
+            }
+            to = resolved
+        } else if let lat = arguments.toLatitude, let lon = arguments.toLongitude {
+            to = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        } else {
+            return "Name the destination to estimate travel time to it."
+        }
+
         let source = MKMapItem(placemark: MKPlacemark(coordinate: from))
-        let destination = MKMapItem(placemark: MKPlacemark(
-            coordinate: CLLocationCoordinate2D(latitude: arguments.toLatitude, longitude: arguments.toLongitude)))
+        let destination = MKMapItem(placemark: MKPlacemark(coordinate: to))
 
         let request = MKDirections.Request()
         request.source = source
@@ -256,7 +287,13 @@ public struct TravelETATool: ReadTool {
             let eta = try await MKDirections(request: request).calculateETA()
             let minutes = Int((eta.expectedTravelTime / 60).rounded())
             let km = eta.distance / 1000
-            return "About \(minutes) min, \(String(format: "%.1f", km)) km by \(arguments.mode)."
+            // Both forms, already converted: asked for one, the model does the
+            // arithmetic itself and gets it wrong, reporting "240 minutes (or
+            // 4 hours and 32 minutes)" in a single sentence.
+            let spelled = minutes >= 60
+                ? "\(minutes / 60) h \(minutes % 60) min (\(minutes) minutes)"
+                : "\(minutes) minutes"
+            return "About \(spelled), \(String(format: "%.1f", km)) km by \(arguments.mode)."
         } catch {
             return "Could not estimate travel time: \(error.localizedDescription)"
         }
