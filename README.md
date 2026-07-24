@@ -73,6 +73,38 @@ struct SendInvoice: ConsequentialTool {
 
 That is the whole API surface. No orchestration DSL, no configuration object.
 
+## Many tools: the Router
+
+The on-device model has a 4096-token context and its tool selection degrades as the catalog grows, so registering tens of tools in one session is the wrong shape. Group tools into small domains and let a `Router` classify each intent to one domain, then run only that domain's few tools:
+
+```swift
+import ErgonTools
+
+let router = try Router(toolsets: ErgonToolkit.allToolsets())  // calendar, reminders, maps, weather, contacts, notes, alarms, device
+for try await event in router.run("set a timer for 10 minutes") {
+    if case .routed(let domain) = event { print(domain) }  // "alarms"
+}
+```
+
+Each domain keeps its own hash-chained receipt log; approvals, receipts, and idempotency are unchanged. `ErgonTools` ships reference tools for those domains (paid-only services are swapped for keyless fallbacks, so weather uses Open-Meteo and the whole demo runs on a free Personal Team). `router.route(intent)` returns the domain without running anything.
+
+## Generative UI
+
+`ErgonUI` lets the model author a native screen instead of prose. It fills a small `@Generable` vocabulary (title, summary, facts, follow-up chips) that streams into SwiftUI in declaration order, so the screen assembles top to bottom as tokens arrive:
+
+```swift
+import ErgonUI
+
+let presenter = ScreenPresenter()
+await presenter.present(intent, grounding: toolOutput)   // grounding keeps it from inventing facts
+// in a view:
+if let screen = presenter.screen {
+    ErgonScreenView(screen) { suggestion in submit(suggestion) }  // chips resubmit
+}
+```
+
+Use it for informational answers; keep the approval flow for actions.
+
 ## Availability
 
 FoundationModels needs Apple Intelligence hardware and iOS 26. Check before you promise:
@@ -99,11 +131,11 @@ xcodegen generate
 open ErgonDemo.xcodeproj
 ```
 
-Requires Xcode 26 and an Apple Intelligence capable device or simulator. The demo needs calendar and reminders access; both usage strings are set in the generated project.
+Requires Xcode 26 and an Apple Intelligence capable device or simulator. The demo asks for calendar, reminders, contacts, location, and alarm access as each domain is first used; every usage string is set in the generated project.
 
 ## Requirements
 
-- iOS 26.0+ or macOS 26.0+ (Turkish intents need 26.1+)
+- iOS 26.1+ or macOS 26.0+ (Turkish intents and AlarmKit both need 26.1)
 - Swift 6, Xcode 26
 - A device with Apple Intelligence enabled
 

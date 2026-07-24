@@ -21,6 +21,13 @@ public struct ErgonScreen: Equatable, Sendable {
 
     @Guide(description: "Up to three short tappable follow-up suggestions, imperative phrasing.", .maximumCount(3))
     public var suggestions: [String]
+
+    public init(title: String, summary: String, facts: [ErgonFact], suggestions: [String]) {
+        self.title = title
+        self.summary = summary
+        self.facts = facts
+        self.suggestions = suggestions
+    }
 }
 
 /// One label/value row. `value` is the hero on a data surface, so keep it the
@@ -32,4 +39,9 @@ public struct ErgonFact: Equatable, Sendable {
 
     @Guide(description: "The value itself, e.g. '21 C' or 'Cafe Nero'.")
     public var value: String
+
+    public init(label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
 }

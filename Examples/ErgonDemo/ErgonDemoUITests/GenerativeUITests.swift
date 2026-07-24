@@ -1,28 +1,23 @@
 import XCTest
 
-/// Drives an informational intent and asserts the generative screen renders
-/// (a native card with facts and tappable suggestion chips), proving the
-/// ErgonUI path end to end on device. Uses a general-knowledge query so it
-/// needs no permissions or network.
+/// Renders the generative screen from a canned ErgonScreen (launch argument,
+/// no model call) and asserts ErgonUI lays it out: the card, its facts, and
+/// tappable suggestion chips. Deterministic and fast, unlike driving the full
+/// three-generation on-device flow.
 final class GenerativeUITests: XCTestCase {
     @MainActor
-    func testInformationalIntentRendersGenerativeScreen() throws {
+    func testGenerativeScreenRenders() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-previewScreen"]
         app.launch()
 
-        let field = app.textFields["Ask Ergon"]
-        XCTAssertTrue(field.waitForExistence(timeout: 15))
-        field.tap()
-        field.typeText("what kinds of things can you help me with\n")
+        // The card renders a title, fact values, and tappable suggestion chips.
+        XCTAssertTrue(app.staticTexts["Weather"].waitForExistence(timeout: 15), "Title did not render")
+        XCTAssertTrue(app.staticTexts["24 C"].exists, "Fact value did not render")
+        let chip = app.buttons["See the weekend"]
+        XCTAssertTrue(chip.exists, "Suggestion chip did not render")
+        XCTAssertTrue(chip.isHittable, "Suggestion chip is not tappable")
 
-        // The generative screen streams a title, then facts, then chips.
-        // Wait generously for on-device generation of two passes (reply, then
-        // the ErgonScreen).
-        let generativeScreen = app.otherElements["generativeScreen"]
-        XCTAssertTrue(generativeScreen.waitForExistence(timeout: 200),
-                      "The generative screen never rendered")
-
-        // Capture the rendered screen as an attachment for the record.
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)
         attachment.name = "generative-screen"

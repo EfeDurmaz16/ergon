@@ -1,10 +1,43 @@
 import SwiftUI
 import Ergon
+import ErgonUI
 
 @main
 struct ErgonDemoApp: App {
     var body: some Scene {
-        WindowGroup { RootView() }
+        WindowGroup {
+            // A launch-argument path renders a canned generative screen with
+            // no model call, so the ErgonUI rendering can be snapshot-tested
+            // deterministically without waiting on on-device generation.
+            if ProcessInfo.processInfo.arguments.contains("-previewScreen") {
+                PreviewScreen()
+            } else {
+                RootView()
+            }
+        }
+    }
+}
+
+struct PreviewScreen: View {
+    private let sample = ErgonScreen(
+        title: "Weather",
+        summary: "Istanbul is currently 24 C and partly cloudy, with moderate humidity.",
+        facts: [
+            ErgonFact(label: "Now", value: "24 C"),
+            ErgonFact(label: "Sky", value: "Partly cloudy"),
+            ErgonFact(label: "Humidity", value: "60%"),
+            ErgonFact(label: "Tomorrow", value: "26 C / 18 C"),
+        ],
+        suggestions: ["See the weekend", "Weather in Ankara", "Do I need an umbrella"])
+
+    var body: some View {
+        ScrollView {
+            ErgonScreenView(sample.asPartiallyGenerated())
+                .padding(16)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityIdentifier("generativeScreen")
+                .padding(20)
+        }
     }
 }
 
