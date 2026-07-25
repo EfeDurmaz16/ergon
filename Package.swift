@@ -11,7 +11,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "Ergon"),
-        .target(name: "ErgonTools", dependencies: ["Ergon"]),
+        // Service descriptors ship as JSON, not as Swift: a remote service is
+        // data, and bundling it as a resource is the first step toward one
+        // arriving at runtime.
+        .target(name: "ErgonTools", dependencies: ["Ergon"],
+                resources: [.process("Services")]),
         .target(name: "ErgonUI", dependencies: ["Ergon"]),
         .testTarget(name: "ErgonTests", dependencies: ["Ergon", "ErgonTools", "ErgonUI"]),
     ]

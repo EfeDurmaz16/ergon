@@ -1,0 +1,67 @@
+{
+  "name": "GitHub",
+  "baseURL": "https://api.github.com",
+  "auth": { "type": "none" },
+  "headers": {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  },
+  "operations": [
+    {
+      "name": "searchRepositories",
+      "description": "Search public GitHub repositories by keyword.",
+      "method": "GET",
+      "path": "/search/repositories",
+      "effect": "read",
+      "parameters": [
+        {
+          "name": "query",
+          "description": "What to search for, like 'swift http client'",
+          "type": "string",
+          "in": "query",
+          "wireName": "q"
+        }
+      ],
+      "fixedQuery": { "sort": "stars", "order": "desc", "per_page": "5" },
+      "response": {
+        "items": "items",
+        "maxItems": 5,
+        "fields": [
+          { "label": "Repo", "path": "full_name" },
+          { "label": "Stars", "path": "stargazers_count" },
+          { "label": "About", "path": "description", "maxLength": 120 }
+        ]
+      }
+    },
+    {
+      "name": "listIssues",
+      "description": "List the open issues of a GitHub repository.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues",
+      "effect": "read",
+      "parameters": [
+        {
+          "name": "owner",
+          "description": "Owner of the repository, like 'apple'",
+          "type": "string",
+          "in": "path"
+        },
+        {
+          "name": "repo",
+          "description": "Repository name, like 'swift'",
+          "type": "string",
+          "in": "path"
+        }
+      ],
+      "fixedQuery": { "state": "open", "per_page": "5" },
+      "response": {
+        "maxItems": 5,
+        "fields": [
+          { "label": "Issue", "path": "[0].title" },
+          { "label": "Number", "path": "[0].number" },
+          { "label": "Opened by", "path": "[0].user.login" }
+        ]
+      }
+    }
+  ]
+}
