@@ -117,6 +117,8 @@ struct ReceiptsView: View {
         case .approved: "approved"
         case .denied: "denied"
         case .autoRead: "read"
+        case .autoRun: "ran, undoable"
+        case .undone: "undone"
         case .refused: "refused"
         }
     }
