@@ -28,7 +28,12 @@ struct PreviewScreen: View {
             ErgonFact(label: "Humidity", value: "60%"),
             ErgonFact(label: "Tomorrow", value: "26 C / 18 C"),
         ],
-        suggestions: ["See the weekend", "Weather in Ankara", "Do I need an umbrella"])
+        // The last one is deliberately longer than the screen: the model does
+        // write suggestions like this, and a chip that cannot fit used to be
+        // placed past the right edge instead of wrapping inside itself.
+        suggestions: ["See the weekend",
+                      "Weather in Ankara",
+                      "Tap the screen to see the forecast for the next 24 hours"])
 
     var body: some View {
         ScrollView {

@@ -84,6 +84,8 @@ private struct FlowChips: View {
                 } label: {
                     Text(text)
                         .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -96,6 +98,12 @@ private struct FlowChips: View {
 }
 
 /// Minimal wrapping HStack using Layout, so chips flow onto new lines.
+///
+/// Every measurement is taken against the container width, never
+/// `.unspecified`. Measured unconstrained, a chip reports the width its text
+/// wants on one line, and a long one is then placed wider than the screen and
+/// runs off the right edge: wrapping between chips does not help if a single
+/// chip cannot fit. Constrained, its text wraps inside the capsule instead.
 struct FlexibleStack: Layout {
     var spacing: CGFloat = 8
 
@@ -104,7 +112,7 @@ struct FlexibleStack: Layout {
         var rows: [[CGSize]] = [[]]
         var lineWidth: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = view.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
             if lineWidth + size.width > maxWidth, !rows[rows.count - 1].isEmpty {
                 rows.append([])
                 lineWidth = 0
@@ -123,7 +131,7 @@ struct FlexibleStack: Layout {
         var y = bounds.minY
         var rowHeight: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = view.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
             if x + size.width > bounds.maxX, x > bounds.minX {
                 x = bounds.minX
                 y += rowHeight + spacing
