@@ -99,7 +99,11 @@ public final class Ergon {
     ///     Receipts store intents, arguments, and tool outputs in cleartext;
     ///     the file is created with until-first-unlock protection on iOS,
     ///     and rotation is the host's call via `quarantineReceipts(at:)`.
-    public init(tools: [any Tool], instructions: String? = nil, receiptsURL: URL? = nil) throws {
+    ///   - dynamicTools: tools defined by data rather than by a Swift type.
+    ///     Same gating rules, same receipts; the only difference is that these
+    ///     can arrive at runtime from a descriptor instead of a build.
+    public init(tools: [any Tool], dynamicTools: [DynamicTool] = [],
+                instructions: String? = nil, receiptsURL: URL? = nil) throws {
         let url = receiptsURL ?? URL.applicationSupportDirectory
             .appending(path: "Ergon/receipts.jsonl")
         self.receiptsURL = url
@@ -131,6 +135,9 @@ public final class Ergon {
             } else {
                 gated.append(tool.fallbackGate(stage: stage))
             }
+        }
+        for tool in dynamicTools {
+            gated.append(try DynamicGate(tool, stage: stage, record: record, autoRun: autoRun))
         }
         self.gatedTools = gated
         // ponytail: instructions capture the date at init; a session that

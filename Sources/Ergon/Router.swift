@@ -53,6 +53,7 @@ public final class Router {
         for toolset in toolsets {
             builtEngines[toolset.name] = try Ergon(
                 tools: toolset.tools,
+                dynamicTools: toolset.dynamicTools,
                 instructions: toolset.instructions,
                 receiptsURL: directory.appending(path: "receipts-\(toolset.name).jsonl"))
         }

@@ -250,11 +250,41 @@ import FoundationModels
         #expect(reminderSparse.dueISO8601 == nil)
         #expect(reminderSparse.notes == nil)
 
-        // "Weather here": the model omits both coordinates and the tool falls
-        // back to the device location, so this must decode rather than throw.
-        let here = try WeatherTool.Arguments(GeneratedContent(json: "{}"))
-        #expect(here.latitude == nil)
-        #expect(here.longitude == nil)
+    }
+
+    /// "Weather here": the model omits both coordinates. A data-defined tool
+    /// has no Swift type to fail decoding, so the guarantee that matters is
+    /// that missing fields read as absent rather than as zero, which would
+    /// silently forecast the Gulf of Guinea.
+    @Test func dynamicToolArgumentsTreatMissingFieldsAsAbsent() {
+        let given = ToolArguments(jsonString: #"{"latitude": 40.4897, "longitude": 29.308}"#)
+        #expect(given.number("latitude") == 40.4897)
+        #expect(given.integer("longitude") == 29)
+
+        let omitted = ToolArguments(jsonString: "{}")
+        #expect(omitted.number("latitude") == nil)
+        #expect(omitted.number("longitude") == nil)
+
+        // Model output is not guaranteed to be an object at all.
+        #expect(ToolArguments(jsonString: "not json").fields.isEmpty)
+    }
+
+    /// The schema is the whole point of the data-driven catalog: if it does not
+    /// render, no descriptor can ever reach the model.
+    @Test func aDataDefinedSchemaRendersForTheModel() throws {
+        let tool = DynamicTool(
+            name: "probe",
+            description: "test",
+            arguments: [
+                SchemaProperty(name: "mode", description: "how", schema: .string(oneOf: ["a", "b"])),
+                SchemaProperty(name: "count", description: "how many",
+                               schema: .integer(minimum: 1, maximum: 10), isOptional: true),
+                SchemaProperty(name: "tags", description: "labels",
+                               schema: .array(of: .string(oneOf: [])), isOptional: true),
+            ],
+            effect: .read,
+            run: { _ in "ok" })
+        _ = try generationSchema(for: tool.schema)
     }
 
     /// The location fallback races the fix against a deadline, because an

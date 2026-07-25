@@ -60,7 +60,7 @@ public enum ErgonToolkit {
     public static func weather() -> Toolset {
         Toolset(name: "weather",
                 description: "weather and forecast. Examples: what is the weather, is it going to rain tomorrow, how cold is it in Ankara, hava nasil",
-                tools: [WeatherTool()],
+                dynamicTools: [weatherTool()],
                 instructions: "Reply in the language of the request. For the weather here or nearby, call getWeather with no coordinates: it uses the user's own location. Keep replies short.")
     }
 
