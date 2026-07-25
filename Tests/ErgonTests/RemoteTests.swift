@@ -122,6 +122,24 @@ import Testing
         #expect(run.project(json) == "1. Title: Only")
     }
 
+    /// Naming the fields bounds the shape of a response but not its size. A
+    /// real GitHub search returns a repository whose description alone is
+    /// 190,000 characters, twelve times the context window, and the generation
+    /// dies before it can answer.
+    @Test func oneEnormousFieldCannotEatTheContextWindow() {
+        let huge = String(repeating: "x", count: 200_000)
+        let json = try! #require(JSONValue(jsonString: JSONValue.object([
+            "items": .array([.object(["title": .string(huge),
+                                      "user": .object(["login": .string("efe")])])]),
+        ]).jsonString))
+
+        let summary = executor(service()).project(json)
+
+        #expect(summary.count < 2_100, "projected \(summary.count) characters")
+        #expect(summary.contains("…"), "a trimmed value must say so")
+        #expect(summary.contains("By: efe"), "later fields must survive the trim")
+    }
+
     @Test func anEmptyResultReadsAsEmptyRatherThanAsAnError() {
         let json = try! #require(JSONValue(jsonString: #"{"items": []}"#))
         #expect(executor(service()).project(json) == "No results.")

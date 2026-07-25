@@ -74,11 +74,17 @@ public struct ResponseProjection: Sendable {
     public let itemsPath: String?
     public let fields: [ProjectionField]
     public let maximumItems: Int
+    /// Hard ceiling on the whole summary. Bounding the number of items and the
+    /// length of each field still leaves the product of the two unbounded, and
+    /// the context window is a fixed budget: this is the last line of defence.
+    public let maximumCharacters: Int
 
-    public init(itemsPath: String? = nil, fields: [ProjectionField], maximumItems: Int = 5) {
+    public init(itemsPath: String? = nil, fields: [ProjectionField],
+                maximumItems: Int = 5, maximumCharacters: Int = 2000) {
         self.itemsPath = itemsPath
         self.fields = fields
         self.maximumItems = maximumItems
+        self.maximumCharacters = maximumCharacters
     }
 }
 
@@ -87,11 +93,27 @@ public struct ProjectionField: Sendable {
     /// Dotted path, with `[n]` for array indices: `current.temperature`,
     /// `items[0].name`. Relative to the item when the projection has one.
     public let path: String
+    /// How much of the value the model is allowed to see.
+    ///
+    /// Naming the fields bounds the shape of a response but not its size: a
+    /// single field can hold anything. A live GitHub search for "swift http
+    /// client" returns a repository whose description alone is 190,000
+    /// characters, roughly twelve times the entire context window, and the
+    /// generation dies before it can answer.
+    public let maximumLength: Int
 
-    public init(label: String, path: String) {
+    public init(label: String, path: String, maximumLength: Int = 160) {
         self.label = label
         self.path = path
+        self.maximumLength = maximumLength
     }
+}
+
+/// Cuts to a character budget on a character boundary, marking the cut so the
+/// model can tell the difference between a short value and a trimmed one.
+func clamped(_ text: String, to limit: Int) -> String {
+    guard text.count > limit else { return text }
+    return String(text.prefix(max(0, limit - 1))) + "…"
 }
 
 public struct ServiceOperation: Sendable {
@@ -297,7 +319,7 @@ struct HTTPExecutor: Sendable {
         let projection = operation.projection
         guard let itemsPath = projection.itemsPath else {
             let line = summarize(json, fields: projection.fields)
-            return line.isEmpty ? "No details returned." : line
+            return line.isEmpty ? "No details returned." : clamped(line, to: projection.maximumCharacters)
         }
         guard case .array(let items)? = value(at: itemsPath, in: json) else {
             return "No results."
@@ -309,7 +331,7 @@ struct HTTPExecutor: Sendable {
         let more = items.count > projection.maximumItems
             ? "\nShowing \(projection.maximumItems) of \(items.count)."
             : ""
-        return lines.joined(separator: "\n") + more
+        return clamped(lines.joined(separator: "\n"), to: projection.maximumCharacters) + more
     }
 
     private func summarize(_ json: JSONValue, fields: [ProjectionField]) -> String {
@@ -319,7 +341,7 @@ struct HTTPExecutor: Sendable {
             case .string(let value): value
             default: wireText(found)
             }
-            return "\(field.label): \(text)"
+            return "\(field.label): \(clamped(text, to: field.maximumLength))"
         }.joined(separator: ", ")
     }
 
