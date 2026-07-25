@@ -33,7 +33,14 @@ private func requestContactsAccess(_ store: CNContactStore) async throws {
 
 enum ContactsToolError: Error, CustomStringConvertible {
     case accessDenied
-    var description: String { "Contacts access was denied" }
+    case ambiguousUndo(String)
+
+    var description: String {
+        switch self {
+        case .accessDenied: "Contacts access was denied"
+        case .ambiguousUndo(let name): "Could not undo: no single contact named \(name) to remove"
+        }
+    }
 }
 
 public struct FindContactTool: ReadTool {
@@ -81,10 +88,9 @@ public struct FindContactTool: ReadTool {
     }
 }
 
-public struct CreateContactTool: ConsequentialTool {
+public struct CreateContactTool: ReversibleTool {
     public let name = "createContact"
     public let description = "Creates a new contact in the user's address book."
-    public let isReversible = true
 
     @Generable
     public struct Arguments {
@@ -106,6 +112,25 @@ public struct CreateContactTool: ConsequentialTool {
         if let phone = arguments.phone { detail += ", phone \(phone)" }
         if let email = arguments.email { detail += ", email \(email)" }
         return ActionPreview(title: "Create Contact", detail: detail)
+    }
+
+    /// Removes the contact this call added, matched by the same name. Fails
+    /// closed when several people share that name rather than guessing which
+    /// one to delete.
+    public func undo(_ arguments: Arguments) async throws -> String {
+        let store = CNContactStore()
+        try await requestContactsAccess(store)
+        let full = [arguments.givenName, arguments.familyName].compactMap { $0 }.joined(separator: " ")
+        let matches = try store.unifiedContacts(
+            matching: CNContact.predicateForContacts(matchingName: full),
+            keysToFetch: contactKeys())
+        guard matches.count == 1, let contact = matches.first?.mutableCopy() as? CNMutableContact else {
+            throw ContactsToolError.ambiguousUndo(full)
+        }
+        let request = CNSaveRequest()
+        request.delete(contact)
+        try store.execute(request)
+        return "Removed contact \(full)"
     }
 
     public func call(arguments: Arguments) async throws -> String {

@@ -78,7 +78,24 @@ func describe(_ alarm: Alarm) -> String {
     return parts.joined(separator: ", ")
 }
 
-private enum AlarmAccess {
+/// Cancels whichever scheduled alarm carries this label. Shared by the undo
+/// of both creators and by CancelAlarmTool, so "cancel my timer" and tapping
+/// undo take exactly the same path.
+func cancelAlarm(labelled label: String) async throws -> String {
+    try await AlarmAccess.ensure()
+    let alarms = try AlarmManager.shared.alarms
+    let wanted = label.lowercased()
+    let match = alarms.first {
+        (AlarmLabels.name(for: $0.id) ?? "").lowercased().contains(wanted)
+    } ?? (alarms.count == 1 ? alarms.first : nil)
+    guard let match else { throw AlarmToolError.notFound(label) }
+    try AlarmManager.shared.cancel(id: match.id)
+    let name = AlarmLabels.name(for: match.id) ?? "alarm"
+    AlarmLabels.forget(match.id)
+    return "Cancelled \(name)."
+}
+
+enum AlarmAccess {
     static func ensure() async throws {
         switch AlarmManager.shared.authorizationState {
         case .authorized:
@@ -105,10 +122,9 @@ private enum AlarmAccess {
 }
 
 /// Schedules a one-shot alarm at a fixed time. Consequential, reversible.
-public struct CreateAlarmTool: ConsequentialTool {
+public struct CreateAlarmTool: ReversibleTool {
     public let name = "createAlarm"
     public let description = "Schedule an alarm that fires once at a specific date and time."
-    public let isReversible = true
 
     @Generable
     public struct Arguments {
@@ -125,6 +141,10 @@ public struct CreateAlarmTool: ConsequentialTool {
         return ActionPreview(title: "Create alarm", detail: "\(arguments.label), \(when)")
     }
 
+    public func undo(_ arguments: Arguments) async throws -> String {
+        try await cancelAlarm(labelled: arguments.label)
+    }
+
     public func call(arguments: Arguments) async throws -> String {
         try await AlarmAccess.ensure()
         let date = try parseISO(arguments.atISO8601)
@@ -139,10 +159,9 @@ public struct CreateAlarmTool: ConsequentialTool {
 }
 
 /// Starts a countdown timer. Consequential, reversible.
-public struct CreateTimerTool: ConsequentialTool {
+public struct CreateTimerTool: ReversibleTool {
     public let name = "createTimer"
     public let description = "Start a countdown timer for a number of minutes."
-    public let isReversible = true
 
     @Generable
     public struct Arguments {
@@ -156,6 +175,10 @@ public struct CreateTimerTool: ConsequentialTool {
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
         ActionPreview(title: "Start timer", detail: "\(arguments.label), \(arguments.minutes) min")
+    }
+
+    public func undo(_ arguments: Arguments) async throws -> String {
+        try await cancelAlarm(labelled: arguments.label)
     }
 
     public func call(arguments: Arguments) async throws -> String {
@@ -214,17 +237,7 @@ public struct CancelAlarmTool: ConsequentialTool {
     /// scheduled alarm when there is exactly one, since "cancel my timer" is
     /// unambiguous then even if the model paraphrases the label.
     public func call(arguments: Arguments) async throws -> String {
-        try await AlarmAccess.ensure()
-        let alarms = try AlarmManager.shared.alarms
-        let wanted = arguments.label.lowercased()
-        let match = alarms.first {
-            (AlarmLabels.name(for: $0.id) ?? "").lowercased().contains(wanted)
-        } ?? (alarms.count == 1 ? alarms.first : nil)
-        guard let match else { throw AlarmToolError.notFound(arguments.label) }
-        try AlarmManager.shared.cancel(id: match.id)
-        let name = AlarmLabels.name(for: match.id) ?? "alarm"
-        AlarmLabels.forget(match.id)
-        return "Cancelled \(name)."
+        try await cancelAlarm(labelled: arguments.label)
     }
 }
 #endif

@@ -111,19 +111,23 @@ actor ReceiptStore {
                                    success: inout [String: Receipt],
                                    pending: inout Set<String>) {
         guard let key = receipt.idempotencyKey else { return }
-        // Only the approve path's own terminal receipts resolve a pending
-        // marker. A denial never follows a reservation, so letting .denied
+        // Only receipts from a path that reserved first can resolve a pending
+        // marker: the approve path, and the auto-run path a reversible tool
+        // takes. A denial never follows a reservation, so letting .denied
         // clear a pending would let deny-then-approve resurrect a key whose
-        // interrupted execution we are refusing to repeat.
-        switch (receipt.decision, receipt.outcome) {
-        case (.approved, .pending):
+        // interrupted execution we are refusing to repeat. An undo does not
+        // clear the success either: putting the world back is not permission
+        // to do the same thing again under the same key.
+        guard receipt.decision == .approved || receipt.decision == .autoRun else { return }
+        switch receipt.outcome {
+        case .pending:
             pending.insert(key)
-        case (.approved, .success):
+        case .success:
             success[key] = receipt
             pending.remove(key)
-        case (.approved, .failure):
+        case .failure:
             pending.remove(key)
-        default:
+        case .denied:
             break
         }
     }
@@ -164,8 +168,12 @@ actor ReceiptStore {
     /// a key (the model staged the same call twice) race here, and exactly
     /// one may pass. The loser sees the winner's pending marker and fails
     /// closed, or gets the winner's receipt once it succeeded.
+    /// `decision` marks which path reserved: an approval, or a reversible
+    /// tool running on its own. The marker has to carry it, otherwise the log
+    /// claims the user approved something they were never asked about.
     func reserve(intent: String, toolName: String, argumentsJSON: String,
-                 idempotencyKey: String) throws -> Reservation {
+                 idempotencyKey: String,
+                 decision: Receipt.Decision = .approved) throws -> Reservation {
         if let prior = successByKey[idempotencyKey] {
             return .alreadySucceeded(prior)
         }
@@ -173,7 +181,7 @@ actor ReceiptStore {
             throw ErgonError.unresolvedExecution(idempotencyKey: idempotencyKey)
         }
         try append(intent: intent, toolName: toolName, argumentsJSON: argumentsJSON,
-                   idempotencyKey: idempotencyKey, decision: .approved,
+                   idempotencyKey: idempotencyKey, decision: decision,
                    outcome: .pending, latencyMS: 0)
         return .reserved
     }

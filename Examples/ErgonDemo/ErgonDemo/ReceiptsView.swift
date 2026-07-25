@@ -2,9 +2,10 @@ import SwiftUI
 import Ergon
 import ErgonTools
 
-/// The audit surface: the verified receipt trail (newest first) plus the
-/// in-memory resolution diagnostics. Machine values use monospaced digits so
-/// they line up and read as data, not prose.
+/// What the user came for is their notes. The receipt trail and the
+/// resolution diagnostics are developer tooling, so they sit collapsed under
+/// an activity log rather than occupying the product surface: a hash chain
+/// means nothing to someone who can just open their calendar and look.
 struct ReceiptsView: View {
     let model: AppModel
 
@@ -34,25 +35,23 @@ struct ReceiptsView: View {
                         }
                     }
                 }
-                Section("Receipts") {
-                    if receipts.isEmpty {
-                        Text("No receipts yet.")
-                            .foregroundStyle(.secondary)
-                    } else {
+                Section {
+                    DisclosureGroup("Activity log (debug)") {
                         ForEach(receipts) { receipt in
                             receiptRow(receipt)
                         }
-                    }
-                }
-                if !model.diagnostics.isEmpty {
-                    Section("Diagnostics (debug)") {
                         ForEach(model.diagnostics) { diagnostic in
                             diagnosticRow(diagnostic)
                         }
+                        if receipts.isEmpty && model.diagnostics.isEmpty {
+                            Text("Nothing yet.").foregroundStyle(.secondary)
+                        }
                     }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Notes and receipts")
+            .navigationTitle("Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

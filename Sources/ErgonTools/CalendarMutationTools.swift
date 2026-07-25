@@ -3,7 +3,7 @@ import FoundationModels
 import EventKit
 import Foundation
 
-private func findSingleEvent(
+func findSingleEvent(
     titleContains: String,
     start: Date,
     end: Date

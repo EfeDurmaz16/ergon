@@ -20,6 +20,9 @@ public protocol ReadTool: Tool {}
 /// only after `Ergon.approve(_:)`.
 public protocol ConsequentialTool: Tool {
     /// Whether the effect can be undone afterwards (shown to the user).
+    /// Conform to ``ReversibleTool`` instead of setting this by hand: a tool
+    /// that claims reversibility without implementing an undo is a claim
+    /// nothing checks.
     var isReversible: Bool { get }
 
     /// A human-readable rendering of what this call will do, to what.
@@ -27,6 +30,25 @@ public protocol ConsequentialTool: Tool {
     /// not for the model. Called BEFORE the user decides: keep it pure,
     /// no side effects.
     func preview(_ arguments: Arguments) -> ActionPreview
+}
+
+/// A consequential tool that can put the world back. Because it can, it does
+/// not stop to ask: it runs during generation and offers the user an undo.
+///
+/// This is the whole reversibility contract. Asking before every effect reads
+/// as safe but trains the user to approve without looking, and an assistant
+/// that interrupts five times per task is one nobody keeps using. The trade is
+/// only honest when the undo is real, so reversibility is expressed as a
+/// method that must be written, not a boolean that can be asserted.
+public protocol ReversibleTool: ConsequentialTool {
+    /// Put the world back. Called with the same arguments the tool ran with,
+    /// so it must re-find its own effect. Throwing means nothing was undone,
+    /// and the user is told so.
+    func undo(_ arguments: Arguments) async throws -> String
+}
+
+extension ReversibleTool {
+    public var isReversible: Bool { true }
 }
 
 /// What the approval sheet shows for a staged call.

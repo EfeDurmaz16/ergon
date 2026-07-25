@@ -72,6 +72,7 @@ struct ReadyView: View {
         if let router = model.router {
             AskView(model: model)
                 .approvalSheet(router)
+                .undoBar(router)
         } else {
             MessageScreen(title: "Ergon could not start",
                           message: model.initErrorMessage ?? "Unknown error.")

@@ -32,6 +32,11 @@ public final class Router {
         engines.values.flatMap(\.pendingApprovals)
     }
 
+    /// Reversible actions that already ran, across every domain.
+    public var undoable: [Ergon.UndoableAction] {
+        engines.values.flatMap(\.undoable)
+    }
+
     public var isRunning: Bool {
         engines.values.contains(where: \.isRunning) || general.isRunning
     }
@@ -89,6 +94,14 @@ public final class Router {
             throw ErgonError.unknownApproval
         }
         return try await engine.approve(id)
+    }
+
+    @discardableResult
+    public func undo(_ id: UUID) async throws -> Receipt {
+        guard let engine = engines.values.first(where: { $0.undoable.contains { $0.id == id } }) else {
+            throw ErgonError.unknownApproval
+        }
+        return try await engine.undo(id)
     }
 
     @discardableResult

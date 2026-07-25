@@ -7,7 +7,7 @@ import Foundation
 // boundary. Each tool does its fetch, filter, and mutation entirely inside
 // the completion handler and resumes with a Sendable String result.
 
-private func withReminders(
+func withReminders(
     _ body: @escaping @Sendable ([EKReminder]) throws -> String
 ) async throws -> String {
     let predicate = sharedEventStore.predicateForReminders(in: nil)
@@ -55,10 +55,9 @@ public struct ListRemindersTool: ReadTool {
 
 // ReminderCreateTool lives in ReminderTool.swift.
 
-public struct CompleteReminderTool: ConsequentialTool {
+public struct CompleteReminderTool: ReversibleTool {
     public let name = "completeReminder"
     public let description = "Marks the first incomplete reminder matching a title fragment as complete."
-    public let isReversible = true
 
     @Generable
     public struct Arguments {
@@ -70,6 +69,21 @@ public struct CompleteReminderTool: ConsequentialTool {
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
         ActionPreview(title: "Complete reminder", detail: arguments.title)
+    }
+
+    public func undo(_ arguments: Arguments) async throws -> String {
+        try await Access.ensureReminders()
+        let fragment = arguments.title
+        return try await withReminders { reminders in
+            guard let match = reminders.first(where: {
+                $0.isCompleted && ($0.title?.localizedCaseInsensitiveContains(fragment) ?? false)
+            }) else {
+                throw ReminderToolError.notFound(fragment)
+            }
+            match.isCompleted = false
+            try sharedEventStore.save(match, commit: true)
+            return "Marked \"\(match.title ?? fragment)\" as not done again."
+        }
     }
 
     public func call(arguments: Arguments) async throws -> String {

@@ -31,7 +31,7 @@ struct AskView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Receipts") { showReceipts = true }
+                    Button("Notes") { showReceipts = true }
                 }
             }
             .sheet(isPresented: $showReceipts) {

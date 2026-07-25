@@ -28,6 +28,37 @@ struct SpyArguments: Generable {
     }
 }
 
+/// A reversible tool: runs during generation, and counts how often it was
+/// put back. Reversibility is the reason it never asks, so the undo count is
+/// the thing worth asserting on.
+final class SpyReversibleTool: ReversibleTool {
+    typealias Arguments = SpyArguments
+
+    let name = "spyReversible"
+    let description = "Test tool that runs immediately and can be undone."
+    let executions = Mutex(0)
+    let undos = Mutex(0)
+
+    init() {}
+
+    func preview(_ arguments: SpyArguments) -> ActionPreview {
+        ActionPreview(title: "Spy reversible", detail: arguments.value)
+    }
+
+    func call(arguments: SpyArguments) async throws -> String {
+        executions.withLock { $0 += 1 }
+        return "did \(arguments.value)"
+    }
+
+    func undo(_ arguments: SpyArguments) async throws -> String {
+        undos.withLock { $0 += 1 }
+        return "undid \(arguments.value)"
+    }
+
+    var executionCount: Int { executions.withLock { $0 } }
+    var undoCount: Int { undos.withLock { $0 } }
+}
+
 /// A consequential tool that counts executions. The count is the whole test:
 /// it must stay at zero until approval, and never exceed one per key.
 final class SpyConsequentialTool: ConsequentialTool {

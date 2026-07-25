@@ -11,15 +11,17 @@ public enum ErgonToolkit {
     If existing events overlap the requested time, do not create the event: tell the user about the conflict and suggest two nearby free times instead.
     If the window is free, create the event with createCalendarEvent.
     Name events in the language of the user's request.
-    Calling createCalendarEvent does NOT create the event: it only asks the user for permission. After calling it, tell the user the event is waiting for their approval. Never say it was created or scheduled.
+    Creating an event happens immediately and the user can undo it, so after calling createCalendarEvent, say plainly that it is on the calendar. Deleting an event asks the user for permission first, so after calling deleteCalendarEvent, say it is waiting for their confirmation.
     Pass times to tools as ISO 8601 with the user's timezone offset, like 2026-07-25T09:00:00+03:00.
     Keep replies to one or two short sentences.
     """
 
-    /// A shared line every action toolset needs: consequential tools stage an
-    /// approval, they do not execute, so the model must not claim success.
+    /// The one rule every action toolset needs. Tools now split two ways:
+    /// reversible ones run and report, irreversible ones ask first. Telling
+    /// the model to read its own tool output rather than guess which happened
+    /// is what keeps replies honest either way.
     static let stagingRule = """
-    Reply in the language of the request. A tool that changes something does not run when you call it: it asks the user to approve first. After calling such a tool, say the action is waiting for approval. Never claim it was done. Keep replies to one or two short sentences. Pass times as ISO 8601 with offset like 2026-07-25T09:00:00+03:00.
+    Reply in the language of the request. Some tools finish immediately and some only ask the user for permission first. Do not guess which: read what the tool returned and say exactly that. If it says the action is waiting for approval, tell the user it is waiting. If it reports the action as done, tell the user it is done. Never announce a result the tool did not report. Keep replies to one or two short sentences. Pass times as ISO 8601 with offset like 2026-07-25T09:00:00+03:00.
     """
 
     /// Calendar domain: query, create, update, delete.

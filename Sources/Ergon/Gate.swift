@@ -11,7 +11,18 @@ struct StagedAction: Sendable {
     let execute: @Sendable () async throws -> String
 }
 
+/// A reversible call, executed during generation instead of being staged.
+/// Carries its own undo so the engine can offer one without knowing the tool.
+struct AutoAction: Sendable {
+    let toolName: String
+    let preview: ActionPreview
+    let argumentsJSON: String
+    let execute: @Sendable () async throws -> String
+    let undo: @Sendable () async throws -> String
+}
+
 typealias StageCallback = @Sendable (StagedAction) async -> UUID
+typealias AutoRunCallback = @Sendable (AutoAction) async throws -> String
 typealias ReadRecordCallback = @Sendable (_ toolName: String, _ argumentsJSON: String,
                                           _ outcome: Receipt.Outcome, _ latencyMS: Int) async -> Void
 
@@ -63,6 +74,42 @@ final class ConsequentialGate<T: Tool>: FoundationModels.Tool {
     }
 }
 
+/// Wraps a reversible tool: runs it during generation and hands the engine an
+/// undo. The model sees the tool's real output, so it can report what actually
+/// happened instead of announcing a pending approval that never comes.
+final class ReversibleGate<T: ReversibleTool>: FoundationModels.Tool {
+    typealias Arguments = T.Arguments
+    typealias Output = String
+
+    private let tool: T
+    private let makePreview: @Sendable (T.Arguments) -> ActionPreview
+    private let run: AutoRunCallback
+
+    init(_ tool: T,
+         preview: @escaping @Sendable (T.Arguments) -> ActionPreview,
+         run: @escaping AutoRunCallback) {
+        self.tool = tool
+        self.makePreview = preview
+        self.run = run
+    }
+
+    var name: String { tool.name }
+    var description: String { tool.description }
+    var parameters: GenerationSchema { tool.parameters }
+    var includesSchemaInInstructions: Bool { tool.includesSchemaInInstructions }
+
+    func call(arguments: T.Arguments) async throws -> String {
+        let content = arguments.generatedContent
+        let action = AutoAction(
+            toolName: tool.name,
+            preview: makePreview(arguments),
+            argumentsJSON: content.jsonString,
+            execute: { [tool] in summarize(try await tool.call(arguments: try T.Arguments(content))) },
+            undo: { [tool] in try await tool.undo(try T.Arguments(content)) })
+        return try await run(action)
+    }
+}
+
 /// Wraps a read tool: executes immediately, forwards the tool's own output
 /// to the model untouched, and leaves an autoRead receipt.
 final class ReadGate<T: ReadTool>: FoundationModels.Tool {
@@ -109,6 +156,12 @@ extension ConsequentialTool {
     func gate(stage: @escaping StageCallback) -> any FoundationModels.Tool {
         ConsequentialGate(self, isReversible: isReversible,
                           preview: { self.preview($0) }, stage: stage)
+    }
+}
+
+extension ReversibleTool {
+    func gate(run: @escaping AutoRunCallback) -> any FoundationModels.Tool {
+        ReversibleGate(self, preview: { self.preview($0) }, run: run)
     }
 }
 

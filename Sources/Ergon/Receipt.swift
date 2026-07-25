@@ -13,6 +13,10 @@ public struct Receipt: Codable, Sendable, Equatable, Identifiable {
         case approved
         case denied
         case autoRead
+        /// A reversible tool ran without asking, because it can be undone.
+        case autoRun
+        /// The user undid a previously auto-run action.
+        case undone
         /// The user approved, but the runtime refused to execute: a prior
         /// execution of the same idempotency key is unresolved or in flight.
         case refused

@@ -40,6 +40,13 @@ enum NotesStore {
         return trimmed
     }
 
+    /// Where a note's previous text waits so an overwrite can be undone.
+    /// Hidden, so it never shows up in the notes list or in Files.
+    static func backupURL(for url: URL) -> URL {
+        url.deletingLastPathComponent()
+            .appendingPathComponent("." + url.lastPathComponent + ".prev")
+    }
+
     static func fileURL(for name: String) throws -> URL {
         let safe = try sanitize(name)
         return try directory().appendingPathComponent(safe + ".txt")
@@ -115,7 +122,7 @@ public struct ReadNoteTool: ReadTool {
 /// approval; overwriting an existing note is reversible only in the sense
 /// that the user can write it back, so it is still marked reversible since
 /// no data outside the sandbox is touched and the old text was disposable.
-public struct WriteNoteTool: ConsequentialTool {
+public struct WriteNoteTool: ReversibleTool {
     @Generable
     public struct Arguments {
         @Guide(description: "Name for the note, without the .txt extension")
@@ -126,7 +133,6 @@ public struct WriteNoteTool: ConsequentialTool {
 
     public let name = "writeNote"
     public let description = "Create or overwrite a note inside Ergon with the given text. This does not write to the Apple Notes app."
-    public let isReversible = true
 
     public init() {}
 
@@ -134,11 +140,30 @@ public struct WriteNoteTool: ConsequentialTool {
         ActionPreview(title: "Write note in Ergon", detail: arguments.name)
     }
 
-    // Contract: throwing means no file was written or changed.
+    // Contract: throwing means no file was written or changed. The previous
+    // text is kept aside first, because overwriting a note is only reversible
+    // if the old text still exists somewhere.
     public func call(arguments: Arguments) async throws -> String {
         let url = try NotesStore.fileURL(for: arguments.name)
+        let backup = NotesStore.backupURL(for: url)
+        try? FileManager.default.removeItem(at: backup)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.copyItem(at: url, to: backup)
+        }
         try arguments.text.write(to: url, atomically: true, encoding: .utf8)
         return "Saved note '\(arguments.name)'."
+    }
+
+    public func undo(_ arguments: Arguments) async throws -> String {
+        let url = try NotesStore.fileURL(for: arguments.name)
+        let backup = NotesStore.backupURL(for: url)
+        if FileManager.default.fileExists(atPath: backup.path) {
+            try? FileManager.default.removeItem(at: url)
+            try FileManager.default.moveItem(at: backup, to: url)
+            return "Restored the previous text of '\(arguments.name)'."
+        }
+        try FileManager.default.removeItem(at: url)
+        return "Removed note '\(arguments.name)'."
     }
 }
 

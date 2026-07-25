@@ -36,6 +36,10 @@ public final class Ergon {
     /// Staged calls waiting for a decision. Observable: drive your own UI
     /// from this, or attach the built-in sheet with `.approvalSheet(_:)`.
     public private(set) var pendingApprovals: [Approval] = []
+    /// Reversible actions that already happened, newest last, still undoable.
+    /// Drive an undo affordance from this: it is the counterweight that makes
+    /// running without asking honest.
+    public private(set) var undoable: [UndoableAction] = []
     public private(set) var isRunning = false
 
     /// Where the JSONL receipt log lives.
@@ -44,6 +48,17 @@ public final class Ergon {
     private struct StagedEntry {
         let runGeneration: Int
         let action: StagedAction
+    }
+
+    /// Something reversible that already ran. `preview` is what the user is
+    /// told happened; `undo` puts it back.
+    public struct UndoableAction: Identifiable, Sendable {
+        public let id: UUID
+        public let toolName: String
+        public let preview: ActionPreview
+        let undo: @Sendable () async throws -> String
+        let intent: String
+        let argumentsJSON: String
     }
 
     @ObservationIgnored private var session: LanguageModelSession
@@ -100,8 +115,16 @@ public final class Ergon {
         let record: ReadRecordCallback = { [weak self] toolName, argsJSON, outcome, ms in
             await self?.recordRead(toolName: toolName, argumentsJSON: argsJSON, outcome: outcome, latencyMS: ms)
         }
+        let autoRun: AutoRunCallback = { [weak self] action in
+            guard let self else { throw ErgonError.unknownApproval }
+            return try await self.runReversible(action)
+        }
         for tool in tools {
-            if let consequential = tool as? any ConsequentialTool {
+            // Reversible first: it refines ConsequentialTool, so the order of
+            // these checks is what decides whether a tool asks or acts.
+            if let reversible = tool as? any ReversibleTool {
+                gated.append(reversible.gate(run: autoRun))
+            } else if let consequential = tool as? any ConsequentialTool {
                 gated.append(consequential.gate(stage: stage))
             } else if let read = tool as? any ReadTool {
                 gated.append(read.gate(record: record))
@@ -259,6 +282,29 @@ public final class Ergon {
         return receipt
     }
 
+    /// Undo a reversible action that already ran. The undo is receipted too:
+    /// the trail has to show the world going back, not just going forward.
+    @discardableResult
+    public func undo(_ id: UUID) async throws -> Receipt {
+        guard let index = undoable.firstIndex(where: { $0.id == id }) else {
+            throw ErgonError.unknownApproval
+        }
+        // Consume before the first suspension point, so a double tap on the
+        // undo button cannot run the inverse twice.
+        let action = undoable.remove(at: index)
+        let start = ContinuousClock.now
+        let outcome: Receipt.Outcome
+        do {
+            outcome = .success(try await action.undo())
+        } catch {
+            outcome = .failure(String(describing: error))
+        }
+        return try await store.append(intent: action.intent, toolName: action.toolName,
+                                      argumentsJSON: action.argumentsJSON,
+                                      idempotencyKey: nil, decision: .undone,
+                                      outcome: outcome, latencyMS: latencyMS(since: start))
+    }
+
     /// The full verified receipt trail, oldest first.
     public func receipts() async -> [Receipt] {
         await store.all()
@@ -301,6 +347,44 @@ public final class Ergon {
             continuation.yield(.partial(snapshot.content))
         }
         continuation.yield(.reply(finalText))
+    }
+
+    /// Runs a reversible tool during generation. Still idempotent and still
+    /// receipted: skipping the approval sheet must not skip the interlock that
+    /// stops the same call executing twice.
+    func runReversible(_ action: AutoAction) async throws -> String {
+        let key = Self.idempotencyKey(intent: currentIntent, toolName: action.toolName,
+                                      argumentsJSON: action.argumentsJSON)
+        let reservation = try await store.reserve(intent: currentIntent, toolName: action.toolName,
+                                                 argumentsJSON: action.argumentsJSON,
+                                                 idempotencyKey: key, decision: .autoRun)
+        if case .alreadySucceeded(let prior) = reservation {
+            if case .success(let summary) = prior.outcome { return summary }
+            return "Already done."
+        }
+
+        let start = ContinuousClock.now
+        let outcome: Receipt.Outcome
+        do {
+            outcome = .success(try await action.execute())
+        } catch {
+            outcome = .failure(String(describing: error))
+        }
+        let receipt = try await store.append(intent: currentIntent, toolName: action.toolName,
+                                             argumentsJSON: action.argumentsJSON,
+                                             idempotencyKey: key, decision: .autoRun,
+                                             outcome: outcome, latencyMS: latencyMS(since: start))
+        continuation?.yield(.executed(receipt))
+        guard case .success(let summary) = outcome else {
+            // Nothing happened, so there is nothing to undo. The model still
+            // gets the reason so it can tell the user.
+            if case .failure(let reason) = outcome { return reason }
+            return "Could not do that."
+        }
+        undoable.append(UndoableAction(id: UUID(), toolName: action.toolName,
+                                       preview: action.preview, undo: action.undo,
+                                       intent: currentIntent, argumentsJSON: action.argumentsJSON))
+        return summary
     }
 
     func stage(_ action: StagedAction) -> UUID {

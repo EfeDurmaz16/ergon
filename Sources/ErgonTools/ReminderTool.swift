@@ -3,8 +3,8 @@ import Foundation
 import FoundationModels
 import Ergon
 
-/// Creates a real reminder. Consequential: never runs without approval.
-public struct ReminderCreateTool: ConsequentialTool {
+/// Creates a real reminder. Reversible, so it runs and offers an undo.
+public struct ReminderCreateTool: ReversibleTool {
     public struct Arguments: Generable {
         public var title: String
         public var dueISO8601: String?
@@ -33,9 +33,20 @@ public struct ReminderCreateTool: ConsequentialTool {
 
     public let name = "createReminder"
     public let description = "Create a reminder with a title and an optional due time."
-    public let isReversible = true
 
     public init() {}
+
+    public func undo(_ arguments: Arguments) async throws -> String {
+        try await Access.ensureReminders()
+        let title = arguments.title
+        return try await withReminders { reminders in
+            guard let match = reminders.first(where: { $0.title == title }) else {
+                throw ReminderToolError.notFound(title)
+            }
+            try sharedEventStore.remove(match, commit: true)
+            return "Removed reminder '\(title)'."
+        }
+    }
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
         let due = arguments.dueISO8601.flatMap { try? parseISO($0) }.map { ", due \(formatDay($0))" } ?? ""

@@ -64,8 +64,9 @@ public struct CalendarQueryTool: ReadTool {
     }
 }
 
-/// Creates a real calendar event. Consequential: never runs without approval.
-public struct CalendarCreateTool: ConsequentialTool {
+/// Creates a real calendar event. Reversible, so it runs during generation
+/// and offers an undo instead of interrupting with an approval sheet.
+public struct CalendarCreateTool: ReversibleTool {
     public struct Arguments: Generable {
         public var title: String
         public var startISO8601: String
@@ -99,9 +100,21 @@ public struct CalendarCreateTool: ConsequentialTool {
 
     public let name = "createCalendarEvent"
     public let description = "Create a calendar event with a title, start time, and duration. Check the window with queryCalendar first; on conflict do not create, tell the user instead."
-    public let isReversible = true
 
     public init() {}
+
+    /// Re-finds the event by title in a window around its start and removes
+    /// it. `findSingleEvent` fails closed when several match, so an undo can
+    /// never delete a neighbouring event by accident.
+    public func undo(_ arguments: Arguments) async throws -> String {
+        try await Access.ensureEvents()
+        let start = try parseISO(arguments.startISO8601)
+        let event = try findSingleEvent(titleContains: arguments.title,
+                                        start: start.addingTimeInterval(-60),
+                                        end: start.addingTimeInterval(TimeInterval(arguments.durationMinutes * 60) + 60))
+        try sharedEventStore.remove(event, span: .thisEvent, commit: true)
+        return "Removed '\(arguments.title)'."
+    }
 
     public func preview(_ arguments: Arguments) -> ActionPreview {
         let when = (try? parseISO(arguments.startISO8601)).map(formatDay) ?? arguments.startISO8601

@@ -19,6 +19,51 @@ extension View {
             approve: { try await router.approve($0) },
             deny: { try await router.deny($0) }))
     }
+
+    /// The counterweight to running reversible actions without asking: a bar
+    /// naming what just happened, with one tap to put it back.
+    public func undoBar(_ router: Router) -> some View {
+        modifier(UndoBarModifier(
+            latest: { router.undoable.last },
+            undo: { try await router.undo($0) }))
+    }
+}
+
+struct UndoBarModifier: ViewModifier {
+    let latest: () -> Ergon.UndoableAction?
+    let undo: @MainActor (UUID) async throws -> Receipt
+
+    @State private var failure: String?
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top) {
+            if let action = latest() {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(failure ?? action.preview.title)
+                            .font(.footnote.weight(.medium))
+                        Text(action.preview.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Button("Undo") {
+                        Task {
+                            do { _ = try await undo(action.id) }
+                            catch { failure = "Could not undo" }
+                        }
+                    }
+                    .font(.footnote.weight(.semibold))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.thinMaterial)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: latest()?.id)
+    }
 }
 
 struct ApprovalSheetModifier: ViewModifier {
