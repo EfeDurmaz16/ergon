@@ -32,9 +32,15 @@ final class AppModel {
     }
 
     /// nil when the runtime failed to start; the reason lives in initErrorMessage.
-    let router: Router?
+    /// Rebuilt when the user connects or disconnects a model, because a Router
+    /// carries its backend for the life of its engines.
+    private(set) var router: Router?
     let presenter = ScreenPresenter()
-    let initErrorMessage: String?
+    private(set) var initErrorMessage: String?
+    private(set) var isConnected = false
+
+    private let credentials = KeychainCredentials()
+    private static let keyName = "anthropic-api-key"
 
     var transcript: [Turn] = []
     var diagnostics: [Diagnostic] = []
@@ -43,15 +49,48 @@ final class AppModel {
     private static let logger = Logger(subsystem: "dev.efedurmaz.ErgonDemo", category: "resolution")
 
     init() {
+        rebuildRouter(connected: false)
+    }
+
+    /// Reading the keychain is asynchronous and starting the app is not, so the
+    /// router starts on device and picks up a stored key a moment later. The
+    /// only cost of that order is that a request sent in the first instant
+    /// after launch stays on device, which is the harmless direction.
+    func loadConnection() async {
+        guard !isConnected,
+              await credentials.credential(named: Self.keyName) != nil else { return }
+        rebuildRouter(connected: true)
+    }
+
+    /// Checks the key against the real API before storing it. A key that is
+    /// wrong or out of credit otherwise fails in the middle of a multi-step
+    /// request, where the user reads it as the assistant being broken.
+    func connect(_ key: String) async throws {
+        let probe = AnthropicBackend(credentials: InMemoryCredentials([Self.keyName: key]),
+                                     maximumTokens: 16)
+        _ = try await probe.respond(to: "Reply with OK.", instructions: "", tools: [],
+                                    invoke: { _, _ in "" })
+        try credentials.save(key, named: Self.keyName)
+        rebuildRouter(connected: true)
+    }
+
+    func disconnect() async {
+        credentials.remove(named: Self.keyName)
+        rebuildRouter(connected: false)
+    }
+
+    private func rebuildRouter(connected: Bool) {
         do {
-            self.router = try Router(toolsets: ErgonToolkit.allToolsets())
-            self.initErrorMessage = nil
+            router = try Router(toolsets: ErgonToolkit.allToolsets(),
+                                backend: connected ? AnthropicBackend(credentials: credentials) : nil)
+            initErrorMessage = nil
+            isConnected = connected
         } catch let error as ErgonError {
-            self.router = nil
-            self.initErrorMessage = error.errorDescription ?? "The runtime could not start."
+            router = nil
+            initErrorMessage = error.errorDescription ?? "The runtime could not start."
         } catch {
-            self.router = nil
-            self.initErrorMessage = error.localizedDescription
+            router = nil
+            initErrorMessage = error.localizedDescription
         }
     }
 

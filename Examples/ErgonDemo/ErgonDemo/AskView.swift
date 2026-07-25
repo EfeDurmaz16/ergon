@@ -10,6 +10,7 @@ struct AskView: View {
 
     @State private var input = ""
     @State private var showReceipts = false
+    @State private var showConnect = false
     @FocusState private var focused: Bool
 
     private let turkishSupported = Ergon.supports(Locale(identifier: "tr"))
@@ -30,6 +31,9 @@ struct AskView: View {
             .navigationTitle("Ergon")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(model.isConnected ? "Connected" : "Connect") { showConnect = true }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Notes") { showReceipts = true }
                 }
@@ -37,8 +41,12 @@ struct AskView: View {
             .sheet(isPresented: $showReceipts) {
                 ReceiptsView(model: model)
             }
+            .sheet(isPresented: $showConnect) {
+                ConnectView(model: model)
+            }
             .task {
                 model.prewarm()
+                await model.loadConnection()
                 focused = true
             }
         }
@@ -184,5 +192,87 @@ struct AskView: View {
         guard !text.isEmpty else { return }
         input = ""
         model.submit(text)
+    }
+}
+
+/// Where the user's own API key goes in. Everything single-step keeps running
+/// on device for free whether or not this is filled in: connecting only buys
+/// the requests that span domains, which is what the copy has to say, because
+/// a screen asking for an API key with no reason attached reads as a paywall.
+struct ConnectView: View {
+    let model: AppModel
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var key = ""
+    @State private var problem: String?
+    @State private var checking = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Ergon answers single requests on device, free and offline. A request that spans several apps needs a bigger model: connect your own Anthropic key and only those requests go out.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if model.isConnected {
+                    Section {
+                        Label("Connected", systemImage: "checkmark")
+                            .font(.subheadline)
+                        Button("Disconnect", role: .destructive) {
+                            Task { await model.disconnect() }
+                        }
+                    } footer: {
+                        Text("The key is kept in this device's keychain and never leaves it except in requests to Anthropic.")
+                    }
+                } else {
+                    Section {
+                        SecureField("sk-ant-...", text: $key)
+                            .focused($focused)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
+                            .onSubmit(connect)
+                        Button(checking ? "Checking..." : "Connect", action: connect)
+                            .disabled(checking || key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    } footer: {
+                        if let problem {
+                            Text(problem).foregroundStyle(.red)
+                        } else {
+                            Text("Get a key at console.anthropic.com. It is checked once before it is stored, so a mistyped key fails here rather than halfway through a request.")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Model")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task { focused = !model.isConnected }
+        }
+    }
+
+    private func connect() {
+        let pasted = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pasted.isEmpty else { return }
+        checking = true
+        problem = nil
+        Task {
+            do {
+                try await model.connect(pasted)
+                key = ""
+                dismiss()
+            } catch {
+                // The runtime prefixes its errors with "Generation failed",
+                // which on a key-entry screen names the wrong thing.
+                let described = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                problem = described.replacingOccurrences(of: "Generation failed: ", with: "")
+            }
+            checking = false
+        }
     }
 }
