@@ -55,11 +55,12 @@
       ],
       "fixedQuery": { "state": "open", "per_page": "5" },
       "response": {
+        "items": ".",
         "maxItems": 5,
         "fields": [
-          { "label": "Issue", "path": "[0].title" },
-          { "label": "Number", "path": "[0].number" },
-          { "label": "Opened by", "path": "[0].user.login" }
+          { "label": "Issue", "path": "title", "maxLength": 100 },
+          { "label": "Number", "path": "number" },
+          { "label": "By", "path": "user.login" }
         ]
       }
     }

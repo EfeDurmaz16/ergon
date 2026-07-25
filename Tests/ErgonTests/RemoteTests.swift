@@ -140,6 +140,25 @@ import Testing
         #expect(summary.contains("By: efe"), "later fields must survive the trim")
     }
 
+    /// Most list endpoints answer with a bare array. Without a way to say so,
+    /// a descriptor has to address items by index and can only ever describe
+    /// the first one, which reads to the user as "there is only one".
+    @Test func aRootLevelArrayCanBeProjectedAsTheItemList() {
+        let descriptor = ServiceDescriptor(
+            name: "probe",
+            baseURL: URL(string: "https://api.example.com")!,
+            operations: [ServiceOperation(
+                name: "list", description: "d", path: "/list",
+                projection: ResponseProjection(
+                    itemsPath: ".",
+                    fields: [ProjectionField(label: "Title", path: "title")]))])
+        let run = HTTPExecutor(service: descriptor, operation: descriptor.operations[0],
+                               credentials: InMemoryCredentials([:]), transport: URLSessionTransport)
+        let json = try! #require(JSONValue(jsonString: #"[{"title": "One"}, {"title": "Two"}]"#))
+
+        #expect(run.project(json) == "1. Title: One\n2. Title: Two")
+    }
+
     @Test func anEmptyResultReadsAsEmptyRatherThanAsAnError() {
         let json = try! #require(JSONValue(jsonString: #"{"items": []}"#))
         #expect(executor(service()).project(json) == "No results.")

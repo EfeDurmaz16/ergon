@@ -321,7 +321,11 @@ struct HTTPExecutor: Sendable {
             let line = summarize(json, fields: projection.fields)
             return line.isEmpty ? "No details returned." : clamped(line, to: projection.maximumCharacters)
         }
-        guard case .array(let items)? = value(at: itemsPath, in: json) else {
+        // "." means the response is itself the array, which is how most list
+        // endpoints answer. Without a way to say that, a descriptor has to
+        // address items by index and can only ever describe the first one.
+        let resolved = itemsPath == "." ? "" : itemsPath
+        guard case .array(let items)? = value(at: resolved, in: json) else {
             return "No results."
         }
         guard !items.isEmpty else { return "No results." }
