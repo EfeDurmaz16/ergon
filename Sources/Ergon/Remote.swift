@@ -349,28 +349,30 @@ struct HTTPExecutor: Sendable {
         }.joined(separator: ", ")
     }
 
-    /// Resolves `a.b[2].c` against a JSON value. Returns nil for anything the
-    /// path does not reach, which is the common case with real APIs.
-    func value(at path: String, in json: JSONValue) -> JSONValue? {
-        var current: JSONValue? = json
-        for rawComponent in path.split(separator: ".") {
-            var component = Substring(rawComponent)
-            var indices: [Int] = []
-            while let open = component.lastIndex(of: "["), component.hasSuffix("]") {
-                let inside = component[component.index(after: open)..<component.index(before: component.endIndex)]
-                guard let index = Int(inside) else { return nil }
-                indices.insert(index, at: 0)
-                component = component[component.startIndex..<open]
-            }
-            if !component.isEmpty {
-                guard case .object(let fields)? = current else { return nil }
-                current = fields[String(component)]
-            }
-            for index in indices {
-                guard case .array(let elements)? = current, elements.indices.contains(index) else { return nil }
-                current = elements[index]
-            }
+
+}
+
+/// Resolves `a.b[2].c` against a JSON value. Returns nil for anything the path
+/// does not reach, which is the common case with real API responses.
+func value(at path: String, in json: JSONValue) -> JSONValue? {
+    var current: JSONValue? = json
+    for rawComponent in path.split(separator: ".") {
+        var component = Substring(rawComponent)
+        var indices: [Int] = []
+        while let open = component.lastIndex(of: "["), component.hasSuffix("]") {
+            let inside = component[component.index(after: open)..<component.index(before: component.endIndex)]
+            guard let index = Int(inside) else { return nil }
+            indices.insert(index, at: 0)
+            component = component[component.startIndex..<open]
         }
-        return current
+        if !component.isEmpty {
+            guard case .object(let fields)? = current else { return nil }
+            current = fields[String(component)]
+        }
+        for index in indices {
+            guard case .array(let elements)? = current, elements.indices.contains(index) else { return nil }
+            current = elements[index]
+        }
     }
+    return current
 }

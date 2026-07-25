@@ -23,6 +23,33 @@ struct AutoAction: Sendable {
 
 typealias StageCallback = @Sendable (StagedAction) async -> UUID
 typealias AutoRunCallback = @Sendable (AutoAction) async throws -> String
+
+/// A gate reached by name and raw JSON instead of by its Swift argument type.
+///
+/// FoundationModels drives tools through typed generics, which a remote model
+/// cannot: it returns a tool name and a JSON object. This is the narrow door
+/// that lets both backends run the same gate, so approval, undo, idempotency,
+/// and receipts stay in one implementation rather than two.
+protocol JSONInvokable: Sendable {
+    var toolName: String { get }
+    var toolDescription: String { get }
+    /// JSON Schema for the arguments, as a model backend needs it.
+    var toolJSONSchema: String { get }
+    func invoke(argumentsJSON: String) async throws -> String
+}
+
+/// FoundationModels' `GenerationSchema` is `Codable` and encodes to standard
+/// JSON Schema, so the schema a typed Swift tool already declares is the same
+/// document a remote model wants. No second schema language.
+func jsonSchema(of schema: GenerationSchema) -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    guard let data = try? encoder.encode(schema),
+          let text = String(data: data, encoding: .utf8) else {
+        return #"{"type":"object","properties":{}}"#
+    }
+    return text
+}
 typealias ReadRecordCallback = @Sendable (_ toolName: String, _ argumentsJSON: String,
                                           _ outcome: Receipt.Outcome, _ latencyMS: Int) async -> Void
 
@@ -179,5 +206,47 @@ extension Tool {
         return ConsequentialGate(self, isReversible: false,
                                  preview: { ActionPreview(title: toolName, detail: $0.generatedContent.jsonString) },
                                  stage: stage)
+    }
+}
+
+// MARK: - Reaching a gate by name and JSON
+
+extension ConsequentialGate: JSONInvokable {
+    var toolName: String { name }
+    var toolDescription: String { description }
+    var toolJSONSchema: String { jsonSchema(of: parameters) }
+
+    func invoke(argumentsJSON: String) async throws -> String {
+        try await call(arguments: try T.Arguments(GeneratedContent(json: argumentsJSON)))
+    }
+}
+
+extension ReversibleGate: JSONInvokable {
+    var toolName: String { name }
+    var toolDescription: String { description }
+    var toolJSONSchema: String { jsonSchema(of: parameters) }
+
+    func invoke(argumentsJSON: String) async throws -> String {
+        try await call(arguments: try T.Arguments(GeneratedContent(json: argumentsJSON)))
+    }
+}
+
+extension ReadGate: JSONInvokable {
+    var toolName: String { name }
+    var toolDescription: String { description }
+    var toolJSONSchema: String { jsonSchema(of: parameters) }
+
+    func invoke(argumentsJSON: String) async throws -> String {
+        summarize(try await call(arguments: try T.Arguments(GeneratedContent(json: argumentsJSON))))
+    }
+}
+
+extension DynamicGate: JSONInvokable {
+    var toolName: String { name }
+    var toolDescription: String { description }
+    var toolJSONSchema: String { jsonSchema(of: parameters) }
+
+    func invoke(argumentsJSON: String) async throws -> String {
+        try await call(arguments: try GeneratedContent(json: argumentsJSON))
     }
 }

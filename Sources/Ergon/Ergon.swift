@@ -312,6 +312,60 @@ public final class Ergon {
                                       outcome: outcome, latencyMS: latencyMS(since: start))
     }
 
+    /// This engine's tools as a model backend sees them. The same gates the
+    /// on-device session drives, described in JSON Schema instead of Swift
+    /// generics.
+    public var backendTools: [BackendTool] {
+        gatedTools.compactMap { $0 as? any JSONInvokable }.map {
+            BackendTool(name: $0.toolName, description: $0.toolDescription,
+                        jsonSchema: $0.toolJSONSchema)
+        }
+    }
+
+    /// Runs one tool by name for a backend that cannot call it typed.
+    ///
+    /// This routes through the same gate the on-device model uses, so a remote
+    /// model gets the identical treatment: reads execute, reversible calls run
+    /// and become undoable, and everything else stages an approval. There is no
+    /// second path that could quietly skip the gate.
+    public func invokeTool(named name: String, argumentsJSON: String) async throws -> String {
+        guard let gate = gatedTools.compactMap({ $0 as? any JSONInvokable })
+            .first(where: { $0.toolName == name }) else {
+            return "No tool named '\(name)'."
+        }
+        return try await gate.invoke(argumentsJSON: argumentsJSON)
+    }
+
+    /// Resolve an intent on a capable model instead of the on-device one.
+    ///
+    /// Same tools, same gates, same receipts; only the model changes. Reply and
+    /// approvals surface exactly as they do for a local run.
+    public func run(_ intent: String, on backend: any ModelBackend) -> AsyncThrowingStream<Event, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { [weak self] in
+                guard let self else { return }
+                self.currentIntent = intent
+                do {
+                    let reply = try await backend.respond(
+                        to: intent,
+                        instructions: self.composedInstructions,
+                        tools: self.backendTools,
+                        invoke: { [weak self] name, arguments in
+                            guard let self else { throw ErgonError.unknownApproval }
+                            return try await self.invokeTool(named: name, argumentsJSON: arguments)
+                        })
+                    continuation.yield(.reply(reply))
+                    continuation.finish()
+                } catch let error as ErgonError {
+                    continuation.finish(throwing: error)
+                } catch {
+                    continuation.finish(throwing: ErgonError.generation(String(describing: error)))
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// The full verified receipt trail, oldest first.
     public func receipts() async -> [Receipt] {
         await store.all()

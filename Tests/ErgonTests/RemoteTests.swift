@@ -117,8 +117,8 @@ import Testing
     @Test func aMissingPathYieldsNothingRatherThanCrashing() {
         let run = executor(service())
         let json = try! #require(JSONValue(jsonString: #"{"items": [{"title": "Only"}]}"#))
-        #expect(run.value(at: "items[0].user.login", in: json) == nil)
-        #expect(run.value(at: "items[7].title", in: json) == nil)
+        #expect(value(at: "items[0].user.login", in: json) == nil)
+        #expect(value(at: "items[7].title", in: json) == nil)
         #expect(run.project(json) == "1. Title: Only")
     }
 
