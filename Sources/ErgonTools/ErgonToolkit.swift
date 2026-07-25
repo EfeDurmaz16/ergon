@@ -89,7 +89,7 @@ public enum ErgonToolkit {
     /// Every toolset available on this platform, ready for a `Router`.
     /// iOS-only domains (alarms, device) are included only where they compile.
     public static func allToolsets() -> [Toolset] {
-        var sets = [calendar(), reminders(), maps(), weather(), contacts(), notes()]
+        var sets = [calendar(), reminders(), maps(), weather(), contacts(), notes(), gitHub()]
         #if canImport(AlarmKit)
         sets.append(alarms())
         #endif
