@@ -38,7 +38,7 @@ targets:
       properties:
         CFBundleDisplayName: Ergon
         UILaunchScreen: {}
-        NSCalendarsFullAccessUsageDescription: "Ergon creates the calendar events you approve."
+        NSCalendarsFullAccessUsageDescription: "Ergon reads and manages calendar events you request."
         NSRemindersFullAccessUsageDescription: "Ergon creates the reminders you approve."
         NSContactsUsageDescription: "Ergon looks up and adds contacts you ask for."
         NSLocationWhenInUseUsageDescription: "Ergon uses your location to find nearby places and travel times."

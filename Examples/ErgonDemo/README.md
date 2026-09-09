@@ -15,7 +15,7 @@ Use a test calendar while exploring the demo.
 
 ## Build
 
-Requires the model on device (iOS 26, Apple Intelligence on). Generate the
+Requires the model on device (iOS 26.1+, Apple Intelligence on). Generate the
 Xcode project with [xcodegen](https://github.com/yonaskolb/XcodeGen):
 
 ```sh
