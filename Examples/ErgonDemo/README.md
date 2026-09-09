@@ -1,15 +1,17 @@
 # ErgonDemo
 
-A one-screen SwiftUI app that drives the on-device `Ergon` runtime: natural
-language in, real approved actions out.
+An early-alpha SwiftUI demo for the Ergon runtime: natural language in, typed
+actions out. On-device inference is the default; connecting your own Anthropic
+key enables an optional remote model path.
 
 ## Golden flow
 
 Type (English) `book a dentist appointment tomorrow at 9, warn me about conflicts`
 or (Turkish, needs iOS 26.1+) `yarin 9'a dis randevusu koy, cakisma varsa haber ver`.
 Ergon checks the calendar with a read tool. If there is a conflict it replies
-with alternatives. If the slot is clear it stages a calendar event, the built-in
-approval sheet appears, and approving creates a real event and appends a receipt.
+with alternatives. Calendar creation is declared reversible: it can create the event immediately
+and offer undo. Irreversible actions such as deletion are staged for approval.
+Use a test calendar while exploring the demo.
 
 ## Build
 

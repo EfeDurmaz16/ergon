@@ -1,144 +1,81 @@
 # Ergon
 
-Give your app hands. Ergon turns natural language into real, typed actions on device, built on Apple's FoundationModels. You define tools, the user states an intent, Ergon resolves it into typed calls and executes them. Approval gating, tamper-evident receipts, and idempotent execution are the built-in defaults.
+An experimental command line for your phone. Ask for something in plain language; Ergon turns it into defined actions across supported tools and services.
 
-Runs entirely on device. No backend, no analytics, no cloud fallback.
+**Early alpha.** This is a Swift library and demo app, not an App Store release or a production-ready assistant. APIs and behavior can change. It does not control arbitrary apps or bypass the iOS sandbox.
 
-## Quickstart
+## What it explores
+
+- Typed commands for calendars, reminders, contacts, maps, weather, and notes stored inside Ergon.
+- Small tool groups selected by a router, instead of giving one model every tool at once.
+- Approval prompts for consequential actions and undo support for tools declared reversible.
+- Local execution receipts and duplicate-execution checks.
+- Native SwiftUI answers and action previews.
+- JSON service descriptors, with GitHub as a reference integration.
+
+The default model runs on device through Apple's FoundationModels. An optional Anthropic backend uses your own API key. When connected, the router can send requests spanning tool groups to that remote model. Remote models and network tools send data outside the device; this is not an offline-only system.
+
+## Packages
+
+| Product | Purpose |
+| --- | --- |
+| `Ergon` | Tool execution, routing, approvals, receipts, and model backends |
+| `ErgonTools` | Reference device tools and service descriptors |
+| `ErgonUI` | Generated SwiftUI answer screens |
+
+## Requirements
+
+- Package targets: iOS 26.1+ or macOS 26.0+.
+- Xcode 26 with a compatible Swift toolchain; the package manifest requires Swift tools 6.1.
+- Apple Intelligence-capable hardware with the model available for on-device flows.
+- Relevant system permissions for each tool. Alarms and device tools depend on platform availability.
+
+Check `Ergon.availability` before offering on-device features. Language and model availability also depend on the device and OS. A connected remote backend does not establish support on otherwise unsupported devices.
+
+## Try the library
 
 ```swift
-import SwiftUI
 import Ergon
 import ErgonTools
 
-struct AskView: View {
-    @State private var engine = try! Ergon(
-        tools: [CalendarQueryTool(), CalendarCreateTool(), ReminderCreateTool()],
-        instructions: ErgonToolkit.calendarInstructions)
-    @State private var input = ""
-    @State private var reply = ""
+let router = try Router(toolsets: ErgonToolkit.allToolsets())
 
-    var body: some View {
-        VStack(spacing: 16) {
-            Text(reply)
-            TextField("Ask", text: $input)
-                .onSubmit { Task { try? await ask(input) } }
-        }
-        .approvalSheet(engine)
-    }
-
-    func ask(_ intent: String) async throws {
-        for try await event in engine.run(intent) {
-            if case .partial(let text) = event { reply = text }
-        }
+for try await event in router.run("am I free tomorrow morning?") {
+    if case .partial(let text) = event {
+        print(text)
     }
 }
 ```
 
-Type "yarın 9'a diş randevusu koy, çakışma varsa haber ver" or "book a dentist appointment tomorrow at 9". The model checks the window with the read tool. On conflict it answers with alternatives. When the window is free it stages the event, the approval sheet renders the exact typed call, and approving creates the real event in Calendar.
-
-## Your own tools
-
-```swift
-struct SendInvoice: ConsequentialTool {
-    let name = "sendInvoice"
-    let description = "Send an invoice to a client."
-    let isReversible = false
-
-    @Generable
-    struct Arguments {
-        @Guide(description: "Client email address")
-        var to: String
-        @Guide(description: "Amount in EUR cents")
-        var amountCents: Int
-    }
-
-    func preview(_ arguments: Arguments) -> ActionPreview {
-        ActionPreview(title: "Send invoice",
-                      detail: "\(arguments.amountCents / 100) EUR to \(arguments.to)")
-    }
-
-    func call(arguments: Arguments) async throws -> String {
-        // your side effect; throwing means nothing was sent
-        "Invoice queued."
-    }
-}
-```
-
-## Three nouns
-
-- **Tool**: what your app can do. `ReadTool` runs freely during generation. `ConsequentialTool` can never execute without an approval; a tool that declares neither is gated anyway. Both refine the native `FoundationModels.Tool`, so your tools also work in a bare `LanguageModelSession`. Note the flip side: a bare session has no gates, so only hand it tools you would run unsupervised.
-- **Approval**: a staged consequential call. The sheet (or your own UI over `engine.pendingApprovals`) shows what will happen, to what, and whether it is reversible. `approve(_:)` executes exactly once; `deny(_:)` and swiping the sheet away execute nothing.
-- **Receipt**: every execution, denial, refusal, and read lands in an append-only JSONL log with a SHA-256 hash chain and a sidecar head anchor; approved executions write a pending marker line first, then the outcome line. `Ergon.verifyReceipts(at:)` re-checks chain and anchor: it catches edits, deletions, and trailing truncation, though a writer who rewrites file and anchor together with recomputed hashes is out of scope for v0.1. Confirmed intents carry idempotency keys (exact intent + tool + canonical arguments): re-running one never double-executes, and an execution interrupted mid-flight fails closed instead of running again.
-
-That is the whole API surface. No orchestration DSL, no configuration object.
-
-## Many tools: the Router
-
-The on-device model has a 4096-token context and its tool selection degrades as the catalog grows, so registering tens of tools in one session is the wrong shape. Group tools into small domains and let a `Router` classify each intent to one domain, then run only that domain's few tools:
-
-```swift
-import ErgonTools
-
-let router = try Router(toolsets: ErgonToolkit.allToolsets())  // calendar, reminders, maps, weather, contacts, notes, alarms, device
-for try await event in router.run("set a timer for 10 minutes") {
-    if case .routed(let domain) = event { print(domain) }  // "alarms"
-}
-```
-
-Each domain keeps its own hash-chained receipt log; approvals, receipts, and idempotency are unchanged. `ErgonTools` ships reference tools for those domains (paid-only services are swapped for keyless fallbacks, so weather uses Open-Meteo and the whole demo runs on a free Personal Team). `router.route(intent)` returns the domain without running anything.
-
-## Generative UI
-
-`ErgonUI` lets the model author a native screen instead of prose. It fills a small `@Generable` vocabulary (title, summary, facts, follow-up chips) that streams into SwiftUI in declaration order, so the screen assembles top to bottom as tokens arrive:
-
-```swift
-import ErgonUI
-
-let presenter = ScreenPresenter()
-await presenter.present(intent, grounding: toolOutput)   // grounding keeps it from inventing facts
-// in a view:
-if let screen = presenter.screen {
-    ErgonScreenView(screen) { suggestion in submit(suggestion) }  // chips resubmit
-}
-```
-
-Use it for informational answers; keep the approval flow for actions.
-
-## Availability
-
-FoundationModels needs Apple Intelligence hardware and iOS 26. Check before you promise:
-
-```swift
-switch Ergon.availability {
-case .ready: break
-case .unavailable(let reason): showUnsupported(reason)
-}
-Ergon.supports(Locale(identifier: "tr"))  // Turkish needs iOS 26.1 or later
-```
-
-Unsupported languages, guardrail refusals, and context overflow surface as typed `ErgonError` cases, not crashes.
-
-## How it fits
-
-Start with bare `FoundationModels` if you only need generation; Ergon is for when tools touch the real world. Next to the ecosystem: [SwiftAgent](https://github.com/SwiftedMind/SwiftAgent) is a multi-provider agent loop, [AnyLanguageModel](https://github.com/huggingface/AnyLanguageModel) swaps model backends under the same API, [FoundationModelsKit](https://github.com/rryam/FoundationModelsKit) is a utility kit. Ergon is the safety and audit layer: because its tools are native `FoundationModels.Tool`s, it composes with rather than competes against all three.
+For write actions, integrate the approval and undo UI before using real data. The demo shows the complete interaction flow.
 
 ## Demo app
 
-```
+```sh
 cd Examples/ErgonDemo
 xcodegen generate
 open ErgonDemo.xcodeproj
 ```
 
-Requires Xcode 26 and an Apple Intelligence capable device or simulator. The demo asks for calendar, reminders, contacts, location, and alarm access as each domain is first used; every usage string is set in the generated project.
+The demo uses XcodeGen. Choose your own signing team in Xcode and run on a supported device. Tool permissions are requested as needed. See [the demo guide](Examples/ErgonDemo/README.md).
 
-## Requirements
+## Development
 
-- iOS 26.1+ or macOS 26.0+ (Turkish intents and AlarmKit both need 26.1)
-- Swift 6, Xcode 26
-- A device with Apple Intelligence enabled
+```sh
+swift build
+swift test
+```
+
+Tests cover approval gating, reversible actions, receipts, routing, descriptors, and model backends. Passing unit tests does not verify live provider responses, device permissions, or the complete iOS demo flow.
+
+## Execution boundaries
+
+Read tools run without an action approval. Consequential tools are staged for approval; tools declared reversible can run immediately with undo support. The tool author's classification is part of the trust boundary, so an approval prompt is not guaranteed for every write.
+
+Receipts use a local hash chain and a sidecar head anchor. They can detect some edits and truncation, but cannot prevent a writer from replacing both the log and anchor. These controls are experimental, not a security certification. Review tool implementations before granting access to real accounts or data.
+
+Notes are files in Ergon's own sandbox, not Apple Notes integration. Supported app actions depend on public APIs and permissions.
 
 ## License
 
-MIT
+[MIT](LICENSE)

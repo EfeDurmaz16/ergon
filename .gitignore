@@ -4,3 +4,11 @@ DerivedData/
 xcuserdata/
 .DS_Store
 *.xcresult
+
+# Local credentials
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
